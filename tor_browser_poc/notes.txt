@@ -1,0 +1,30 @@
+payload=[]
+for i in range(0, len(thecode) -1, 2):
+    payload.append(struct.unpack("<H", thecode[i:i+2])[0])
+
+
+==
+in js
+copy payload list to var newcode
+
+var thecode = ''
+
+for(var i = 0; i<newcode.length; ++i){
+thecode += String.fromCharCode(newcode[i]);
+}
+
+
+
+String.prototype.toUnicode = function(){
+    var result = "";
+    for(var i = 0; i < this.length; i++){
+        result += "\\u" + ("000" + this[i].charCodeAt(0).toString(16)).substr(-4);
+    }
+    return result;
+};
+
+thecode.toUnicode()
+
+take out the extra \
+
+
