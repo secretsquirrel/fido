@@ -636,7 +636,6 @@ class x86_windows_metasploit:
     
         return shellcode1 + shellcode2 + shellcode3
         
-
     def get_hash(self, anumber):
         for ahash in self.hashes:
             if hex(ahash[0]) == anumber:
@@ -735,9 +734,7 @@ class x86_windows_metasploit:
             print("};")
     
     def decision_tree(self):
-        print("MOOOOOOOO", dir(self), self.parser_stub)
-
-        self.lla_gpa_parser_stub()
+        
         if self.targetbinary == '' and self.dll == '':
             if self.parser_stub.lower() == 'GPA'.lower():
                 sys.stderr.write("[*] Using GPA Stub\n")
@@ -748,13 +745,21 @@ class x86_windows_metasploit:
         
         elif self.dll !="":
             sys.stderr.write("[*] You know your DLL target! Using {0} hash.\n".format(self.dll))
-            if self.parser_stub.lower() == 'GPA'.lower():
+            if self.parser_stub.lower() == 'GPA'.lower() or self.parser_stub.lower() == 'ExternGPA'.lower():
                 # set hash
                 self.hash(self.dll)
                 print("hash:", hex(self.DLL_HASH))
-                sys.stderr.write("[*] Using GPA ExternGPA from {0}\n".format(self.dll))
+                sys.stderr.write("[*] Using ExternGPA from {0}\n".format(self.dll))
                 self.selected_payload = self.loaded_gpa_iat_parser_stub()
-
+            elif self.parser_stub.lower() == 'ExternLLAGPA'.lower():
+                self.hash(self.dll)
+                print("hash__:", hex(self.DLL_HASH))
+                sys.stderr.write("[*] Using ExternLLAGPA from {0}\n".format(self.dll))
+                self.selected_payload = self.loaded_lla_gpa_parser_stub()
+        #elif self.targetbinary !="":
+        # do decision tree based on OS and targetbinary
+        #else
+        # something exit
 
         '''      
         if FORCE_EMET.lower() == "true" and USE_LOADED_MODULE.lower() == 'false':
