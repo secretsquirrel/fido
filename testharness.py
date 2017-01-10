@@ -624,7 +624,7 @@ class x86_windows_metasploit:
                 self.called_apis.append(ahash[1])
                 # mangle hash here
                 if self.mangle is True:
-                    sys.stderr.write('[*] Mangling {0} hash\n'.format(ahash[1]))
+                    sys.stderr.write('[*] Mangling {0} call hash\n'.format(ahash[1]))
                     random_hash = random.randint(1, 4228250625)
                     self.api_hashes[random_hash] = ahash[1]
                     return ahash[1], random_hash # return managed hash here
@@ -1011,7 +1011,7 @@ class x86_windows_metasploit:
 
     def doit(self):
         
-        sys.stderr.write("[*] Disassembling shellcode\n")
+        sys.stderr.write("[*] Disassembling payload\n")
         #print("*" * 16)
         #print(self.code)
         
@@ -1139,7 +1139,8 @@ class x86_windows_metasploit:
 
         self.string_table = bytes(self.string_table, 'iso-8859-1')
         # put the hashes and string table together "\x00\x00\x00\x00" denotes end of hashes 
-        sys.stderr.write("[*] String Table: {0}\n".format(self.string_table))
+        # XOR table here...
+        #sys.stderr.write("[*] String Table: {0}\n".format(self.string_table))
         
         self.lookup_table = tmp_bytes + b"\x00\x00\x00\x00" + self.string_table
         
@@ -1243,14 +1244,12 @@ class x86_windows_metasploit:
 
         self.entire_payload = self.jump_stub + self.selected_payload + self.stub + self.prestine_code
 
-        
+        sys.stderr.write("[*] Payload complete\n")
+
         if self.OUTPUT is 'stdout':
             sys.stdout.buffer.write(self.entire_payload)
         else:
             self.print_formats()
-        #print("Output payload:", binascii.hexlify(self.entire_payload), len(self.entire_payload))
-        with open('testing-out.bin', 'wb') as f:
-            f.write(self.entire_payload)
         
         
         
