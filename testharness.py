@@ -1136,7 +1136,7 @@ class x86_windows_metasploit:
         
         # For xor need modulo 4
         for api in string_set:
-            self.string_table += api + "\x00" * (4 - (len(api) % 4))
+            self.string_table += api + "\x00"
 
         
 
