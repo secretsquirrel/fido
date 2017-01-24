@@ -789,11 +789,7 @@ class x86_windows_metasploit:
             sys.stderr.write("[*] Possible useful loaded modules: {0}\n".format(self.dlls))
             dllfound = False
             getprocaddress_dll = False
-            blacklist = ['kernel32.dll', 'gdi32.dll', 'ole32.dll', 'shlwapi.dll', 'firewallapi.dll', 
-                         'shell32.dll', 'user32.dll', 'oleaut32.dll', 'ws2_32.dll', 'iphlpapi.dll',
-                         'comctl32.dll', 'msvcrt.dll', 'combase.dll', 'comctl32.dll', 'rpcrt4.dll',
-                         'sspicli.dll',
-                         ]
+            
             for dll in self.dlls:
                 sys.stderr.write('[*] Looking for loadliba/getprocaddr or just getprocaddr in %s\n' % dll)
 
