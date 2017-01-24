@@ -82,7 +82,7 @@ if args.infile.buffer.seekable() is False:
 if not args.code:
     print('[!] -s is required either from cmd line flag or stdin <cat code.bin> | {0}'.format(sys.argv[0]))
     parser.print_help()
-    sys.exit(-1)        
+    sys.exit(-1)     
 
 class x86_windows_metasploit:
     
@@ -757,7 +757,7 @@ class x86_windows_metasploit:
                 # if it isn't already in the set print dll, imported name
                 temp_lm = set()
                 for dll in self.dlls:
-                    sys.stderr.write("\t\t[*] Checking for its imported DLLs: {0}\n".format(dll.decode('ascii')))
+                    sys.stderr.write("\t[*] Checking {0}'s imported DLLs:\n".format(dll.decode('ascii')))
                     for key, value in all_dlls_dict.items():
                         if dll.lower() == bytes(ntpath.basename(key.lower()), 'iso-8859-1'):
                             for lm in value['dlls']:
@@ -768,7 +768,7 @@ class x86_windows_metasploit:
                                         #print ig_dll.lower(), lm.lower()
                                         found = False
                                 if found is True and bytes(lm, 'iso-8859-1') not in temp_lm and bytes(lm, 'iso-8859-1') not in self.dlls:
-                                    sys.stderr.write('\t [*] {0} adds the following not already loaded dll: {1}\n'.format(dll.decode('ascii'), lm))
+                                    sys.stderr.write('\t\t [*] {0} adds the following not already loaded dll: {1}\n'.format(dll.decode('ascii'), lm))
                                     if type(lm) == bytes:
                                         temp_lm.add(lm)
                                     else:
@@ -847,13 +847,19 @@ class x86_windows_metasploit:
                                                                         'importname': 'kernel32.dll'
                                                                         }
                     
-            sys.stderr.write("\n\n[*] LLA/GPA binaries available:\n")
+            sys.stderr.write("\n\n[*] LLA/GPA binaries available, use with -p ExternLLAGPA -d dllname.dll -l import_name:\n")
             for key, value in self.lla_hash_dict.items():
                 sys.stderr.write("--DLL: {0}\n\tHash: {1}, Import Name: {2}\n".format(key, hex(value['hash']), value['importname']))
-            sys.stderr.write("\n[*] GPA binaries available:\n")
+            sys.stderr.write("\n[*] GPA binaries available, use with -p ExternGPA -d dllname.dll -l import_name:\n")
             for key, value in self.gpa_hash_dict.items():
                 sys.stderr.write("--DLL: {0}\n\tHash: {1}, Import Name: {2}\n".format(key, hex(value['hash']), value['importname']))
-            
+
+            if self.lla_gpa_found and self.gpa_found:
+                sys.stderr.write("[*] You can use LLAGPA parser (-p LLAGPA)\n")
+
+            if self.gpa_found:
+                sys.stderr.write("[*] You can use GPA parser (-p GPA)\n")
+
             sys.stderr.write(("*" * 80) + "\n")
             
     def check_apis(self):
@@ -902,7 +908,6 @@ class x86_windows_metasploit:
             self.gpa_found = True
         
     def decision_tree(self):
-        
         if self.targetbinary == '' and self.dll == '':
             if self.parser_stub.lower() == 'GPA'.lower():
                 sys.stderr.write("[*] Using GPA Stub\n")
@@ -910,7 +915,10 @@ class x86_windows_metasploit:
             elif self.parser_stub.lower() == 'LLAGPA'.lower():
                 sys.stderr.write("[*] Using LLAGPA Stub\n")
                 self.selected_payload = self.lla_gpa_parser_stub()
-        
+            else:
+                sys.stderr.write("[!] Try providing a targetbinary (-b) or check your parser_stub option (-p)\n")
+                sys.exit(-1)
+
         elif self.dll !="":
             sys.stderr.write("[*] You know your DLL target! Using {0} hash.\n".format(self.dll))
             if self.parser_stub.lower() == 'GPA'.lower() or self.parser_stub.lower() == 'ExternGPA'.lower():
@@ -926,6 +934,9 @@ class x86_windows_metasploit:
                 sys.stderr.write("[*] Using ExternLLAGPA from {0} hash: {1}, import name: {2}\n".format(self.dll, hex(self.DLL_HASH['hash']),
                     self.DLL_HASH['importname']))
                 self.selected_payload = self.loaded_lla_gpa_parser_stub()
+            else:
+                sys.stderr.write("[!] Check your provided parser_stub option (-p)\n")
+                sys.exit(-1)
         
         elif self.targetbinary !="":
             sys.stderr.write('[*] targetbinary submitted: {0} for {1} OS\n'.format(self.targetbinary, self.OS))
@@ -957,6 +968,7 @@ class x86_windows_metasploit:
             else:
                 sys.stderr.write("[!] You have no options... :( \n")
                 sys.exit()
+
         # do decision tree based on OS and targetbinary
         #else
         # something exit
@@ -1202,9 +1214,6 @@ class x86_windows_metasploit:
             a = re.search(bytes(anAPI, 'iso-8859-1'), self.lookup_table)
             self.lookup_table = self.lookup_table[:m.start()+4] + struct.pack("B", d.start() - m.start()-4) + struct.pack("B", a.start() - m.start()-5) + self.lookup_table[m.start()+6:]
         
-
-        #print("Updated table", binascii.hexlify(self.lookup_table), len(self.lookup_table))
-        
         # Find and select IAT parser here:
         self.decision_tree()
 
@@ -1215,13 +1224,17 @@ class x86_windows_metasploit:
         self.stub += struct.pack("<I", len(self.lookup_table))
         
         self.stub += self.lookup_table
+
         table_offset = len(self.stub) - len(self.lookup_table)
+        
         self.stub += b"\x33\xC0"                            # XOR EAX,EAX                    ; clear eax
         self.stub += b"\xE8\x00\x00\x00\x00"                # CALL $+5                       ; get PC
         self.stub += b"\x5E"                                # POP ESI                        ; current EIP loc in ESI                   
         self.stub += b"\x8B\x8E"                            # MOV ECX, DWORD PTR [ESI+XX]    ; MOV 1st Hash into ECX
+        
         # updated offset
         updated_offset = 0xFFFFFFFF - len(self.stub) - table_offset + 14 
+        
         # Check_hash
         self.stub += struct.pack("<I", 0xffffffff-len(self.stub) - table_offset + 14)
         self.stub += b"\x3B\x4C\x24\x24"                    # CMP ECX,DWORD PTR SS:[ESP+24]  ; check if hash in lookup table
