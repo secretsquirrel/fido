@@ -69,6 +69,8 @@ Four options:
     ExternLLAGPA -- need DLLName or targetbinary to use
                     """
                     )
+parser.add_argument('-n', '--donotfail', dest='dontfail', action='store_true', default=False,
+                    help='Default: Fail if Stephen Fewers Hash API stub is not there, use -n to bypass')
 
 args = parser.parse_args()
 
@@ -666,6 +668,9 @@ class x86_windows_metasploit:
                 self.prestine_code = self.code
                 #print("metasploit payload:", binascii.hexlify(self.code))
         else:
+            if not self.dontfail:
+                sys.stderr.write("[!] No Hash API stub?? Quit! -n to override\n")
+                sys.exit(-1)
             sys.stderr.write("[!] No Hash API stub?? Continuing...\n")
             self.prestine_code = self.code
 
