@@ -1,3 +1,5 @@
+#ASIDE: stackpivot will need to be updated to complete bypass EMET
+
 # python
 payload=[]
 for i in range(0, len(thecode) -1, 2):
