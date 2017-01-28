@@ -1,6 +1,8 @@
+# python
 payload=[]
 for i in range(0, len(thecode) -1, 2):
     payload.append(struct.unpack("<H", thecode[i:i+2])[0])
+
 
 
 ==
