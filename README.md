@@ -8,9 +8,9 @@ with something that bypasses EMET Caller and EAF+ checks but keeps the actual AP
 
 If the warning didn't make sense, you might want to walk away or read up: 
 
-REcon BR Slides:
-Demo1 (Hash Mangling POC): https://youtu.be/p3vFRx5dur0
-Demo2 (Tor Exploit POC): https://youtu.be/oqHT6Ienudg
+* REcon BR Slides: https://github.com/secretsquirrel/fido/blob/master/REconBR_2017.pdf
+* Demo1 (Hash Mangling POC): https://youtu.be/p3vFRx5dur0
+* Demo2 (Tor Exploit POC): https://youtu.be/oqHT6Ienudg
 
 ## Usage
 
