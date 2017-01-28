@@ -6,7 +6,11 @@ with something that bypasses EMET Caller and EAF+ checks but keeps the actual AP
 
 # WARNING: If the 2nd stage payload uses the hash api from metasploit that loads Win APIs from the Export Address Table and jmp's into them, EMET will catch it.
 
-If the warning didn't make sense, you might want to walk away or read up: <slides>
+If the warning didn't make sense, you might want to walk away or read up: 
+
+REcon BR Slides:
+Demo1 (Hash Mangling POC): https://youtu.be/p3vFRx5dur0
+Demo2 (Tor Exploit POC): https://youtu.be/oqHT6Ienudg
 
 ## Usage
 
