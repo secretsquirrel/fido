@@ -52,7 +52,7 @@ optional arguments:
                         Binary that shellcode will be customized to (Optional)
   -t OS, --OSTarget OS  OS target for looking for target DLL Import Tables: winXP, win7, win8, winVista, win10
   -s CODE, --shellcode CODE
-                        x86 Win Shellcode with Stephen Fewers Hash API prepended (from msfvenom) can be from stdin
+                        x86/x64 Windows Shellcode with Stephen Fewers Hash API prepended (from msfvenom) can be from stdin
   -d DLL, --DLLName DLL
                         If you know the DLL in the IAT you are targeting enter this, no need for OS flag.
   -l IMPORTNAME, --Import IMPORTNAME
@@ -71,8 +71,11 @@ optional arguments:
                             LLAGPA - LoadlibraryA(LLA)/GPA is in the targetbinary IAT (smallest shellcode option)
                             ExternGPA -- need DLLName or targetbinary to use
                             ExternLLAGPA -- need DLLName or targetbinary to use
-
+                            ExternGPAFC -- -d kernel32.dll -l kernelbase.dll  # only works on win8 - win10
+                            OffsetGPA -- -b target.EXE # static offset to that version of software (target EXE)
+                            ExternOffsetGPA -- -b target.DLL -d import_dll # static
   -n, --donotfail       Default: Fail if Stephen Fewers Hash API stub is not there, use -n to bypass
+  -M MODE, --mode MODE ASM mode 32 or 64, usually automatic
 ```
 
 
