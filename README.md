@@ -1,7 +1,7 @@
 # fido
 Teaching an old shellcode new tricks
 
-Give fido.py a x86 (32 bit) windows shellcode and it will strip off Stephen Fewer's hash API stub and replace it 
+Give fido.py a x86 (32 bit or 64 bit) windows shellcode and it will strip off Stephen Fewer's hash API stub and replace it 
 with something that bypasses EMET Caller and EAF+ checks but keeps the actual API calls in use.
 
 # WARNING: If the 2nd stage payload uses the hash api from metasploit that loads Win APIs from the Export Address Table and jmp's into them, EMET will catch it.
